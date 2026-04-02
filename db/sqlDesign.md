@@ -22,11 +22,16 @@ form 3
 explanationForShap - 紀錄shap的解釋
     alert_id        外來鍵（連結到alert
     shap_value      shap計算的特徵重要性
+    top-n feature
+    feature_name
+    重要性排序
 
 form 4
 explanationForLime - 紀錄Lime的解釋
     alert_id        外來鍵（連結到alert
     Lime            Lime計算的特徵重要性
+    top-n feature
+    feature_name
 
 form 5
 honeypotRecord ---- 蜜罐紀錄
@@ -36,6 +41,12 @@ honeypotRecord ---- 蜜罐紀錄
 form 6
 Validation -------- 比對xai解釋以及蜜罐紀錄的一致性
     alert_id        外來鍵（連結到alert
+    shap_vs_lime_correlation                xai關聯性
+    shap_vs_honeypot_match                  對蜜罐的關聯性
+    lime_vs_honeypot_match
+    trust_score
+    status                                  驗證狀態
+ 
     ...             如何比對差異的細節，後續補上
 
 packet(1) ────────── (0..1) alert               紀錄的封包不一定發出警告
