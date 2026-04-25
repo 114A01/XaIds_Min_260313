@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <h1>hi</h1>
+    <a href="/">Back to home page</a>
+    <table>
+        <thead>
+            <tr>
+                <th>id</th>
+                <th>source_ip</th>
+                <th>destination_ip</th>
+                <th>protocol</th>
+                <th>size</th>
+                <th>time</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for packet in packets %}
+                <tr>
+                    <!-- <td>{{ packet }}</td> -->
+                    <td>{{ packet.id }}</td>
+                    <td>{{ packet.source_ip }}</td>
+                    <td>{{ packet.destination_ip }}</td>
+                    <td>{{ packet.protocol }}</td>
+                    <td>{{ packet.size }}</td>
+                    <td>{{ packet.time }}</td>
+                    <td><a href="/explain/{{ packet.id }}">explain</a></td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

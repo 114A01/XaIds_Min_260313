@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <div id="lime">
+
+    </div>
+    <div id="shap">
+
+    </div>
+</body>
+<script>
+    fetch("/explain/{{id}}/lime")
+        .then(response => response.json())
+        .then(data => {
+            const limeDiv = document.getElementById("lime");
+            limeDiv.innerHTML = "<h2>LIME Explanation</h2><pre>" + JSON.stringify(data, null, 2) + "</pre>";
+        })
+        .catch(error => console.error("Error fetching LIME explanation:", error));
+</script>
+</html>
