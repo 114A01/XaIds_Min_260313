@@ -3,7 +3,30 @@
 # 輸入：經過預處理的資料
 # 輸出：模型的預測結果。
 
+import joblib
+import numpy as np
+import xgboost as xgb
+import pandas as pd
 
-predict()   //接收預處理的資料, 根據訓練好的模型進行預測, 並回傳預測結果
+bundle = joblib.load('./saved_models/ids_xgb_model.joblib')
+model = xgb.XGBClassifier()
+model.load_model("./saved_models/ids_xgb_model.json")
+scaler = bundle['scaler']
+label_encoder = bundle['label_encoder']
 
-predict_proba() //回傳預測結果的機率分佈, 供解釋器使用
+def _to_df(feature):
+    if isinstance(feature, pd.DataFrame):
+        return feature
+    # numpy array 或 list → 包成 DataFrame
+    return pd.DataFrame(
+        np.array(feature).reshape(1, -1),
+        columns=scaler.feature_names_in_
+    )
+
+def predict(feature):
+    scaled_feature = scaler.transform(_to_df(feature))
+    return model.predict(scaled_feature)[0]
+
+def predict_proba(feature):
+    scaled_feature = scaler.transform(_to_df(feature))
+    return model.predict_proba(scaled_feature)[0]
