@@ -8,11 +8,10 @@ import numpy as np
 import xgboost as xgb
 import pandas as pd
 
-bundle = joblib.load('./saved_models/ids_xgb_model.joblib')
-model = xgb.XGBClassifier()
-model.load_model("./saved_models/ids_xgb_model.json")
-scaler = bundle['scaler']
-label_encoder = bundle['label_encoder']
+bundle = joblib.load('./saved_models/training_data.pkl')
+model = bundle['model']
+# scaler = bundle['scaler']
+# label_encoder = bundle['label_encoder']
 
 def _to_df(feature):
     if isinstance(feature, pd.DataFrame):
@@ -20,13 +19,13 @@ def _to_df(feature):
     # numpy array 或 list → 包成 DataFrame
     return pd.DataFrame(
         np.array(feature).reshape(1, -1),
-        columns=scaler.feature_names_in_
+        columns=feature_names
     )
 
 def predict(feature):
-    scaled_feature = scaler.transform(_to_df(feature))
-    return model.predict(scaled_feature)[0]
+    # scaled_feature = scaler.transform(_to_df(feature))
+    return model.predict(feature)[0]
 
-def predict_proba(feature):
-    scaled_feature = scaler.transform(_to_df(feature))
-    return model.predict_proba(scaled_feature)[0]
+def predict_prob(feature):
+    # scaled_feature = scaler.transform(_to_df(feature))
+    return model.predict_proba(feature)[0]

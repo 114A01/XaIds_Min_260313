@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from db.repository import init_pool, close_pool, get_packets, get_explanation_lime
+from db.repository import init_pool, close_pool, get_packets, get_explanation_lime, get_explanation_shap, get_flows, get_alerts
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
@@ -14,7 +14,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="XaIDS", lifespan=lifespan)  # 使用 lifespan 管理資料庫連接池的啟動和關閉
 app.mount("/static", StaticFiles(directory="api/static"), name="static")
-templates = Jinja2Templates(directory="api/templates")
+templates = Jinja2Templates(directory="api/templates_reference")
 
 
 
@@ -30,11 +30,18 @@ async def root(request: Request):                                           # �
 @app.get("/packetRecord")                                   # IDS紀錄頁面，展示紀錄到的封包以及相關資訊
 async def warning(request: Request):
     # print("Hello World")
-    packets = await get_packets()
+    packets = await get_flows()
     return templates.TemplateResponse(request, "packets.html", {
         "packets": packets,
     })
 
+@app.get("/alertRecord")                                    # 警報紀錄頁面，展示觸發警報的封包以及相關資訊
+async def alert(request: Request):
+    # print("Hello World")
+    alerts = await get_alerts()
+    return templates.TemplateResponse(request, "alerts.html", {
+        "alerts": alerts,
+    })
 
 # @app.get("/packetRecord/packetList")                        # 回傳擷取到的封包列表，供IDS紀錄頁面顯示
 # async def packetList():
@@ -56,7 +63,7 @@ async def explain_lime(id: str):
 
 @app.get("/explain/{id}/shap")                              # 回傳指定封包的shap解釋，供解釋頁面顯示
 async def explain_shap(id: str):
-    return {"message" : "This is a shap explanation message"}
+    return await get_explanation_shap(id)
 
 @app.get("/explain/{id}/consistent")                        # 回傳指定封包的一致性解釋，供解釋頁面顯示
 async def explain_consistent(id: str):
