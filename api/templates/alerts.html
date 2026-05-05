@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <h1>hi</h1>
+    <a href="/">Back to home page</a>
+    <table>
+        <thead>
+            <tr>
+                <th>alert_id</th>
+                <th>flow_id</th>
+                <th>attack_type</th>
+                <th>confidence</th>
+                <th>conf_zone</th>
+                <th>status</th>
+                <th>alert_time</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alert in alerts %}
+                <tr>
+                    <!-- <td>{{ alert }}</td> -->
+                    <td>{{ alert.alert_id }}</td>
+                    <td>{{ alert.flow_id }}</td>
+                    <td>{{ alert.attack_type }}</td>
+                    <td>{{ alert.confidence }}</td>
+                    <td>{{ alert.conf_zone }}</td>
+                    <td>{{ alert.status }}</td>
+                    <td>{{ alert.alert_time }}</td>
+                    <td><a href="/explain/{{ alert.alert_id }}">explain</a></td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

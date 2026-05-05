@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}首頁 — XaIDS Dashboard{% endblock %}
+{% block content %}
+
+<h1>// SYSTEM STATUS</h1>
+
+<div class="stats">
+  <div class="card stat-card">
+    <div class="stat-label">TOTAL PACKETS</div>
+    <div class="stat-num" style="color:var(--text)">—</div>
+  </div>
+  <div class="card stat-card">
+    <div class="stat-label">ATTACKS DETECTED</div>
+    <div class="stat-num" style="color:var(--danger)">—</div>
+  </div>
+  <div class="card stat-card">
+    <div class="stat-label">PENDING REVIEW</div>
+    <div class="stat-num" style="color:var(--warn)">—</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="section-label">QUICK LINKS</div>
+  <a href="/packetRecord" class="btn">查看封包紀錄 →</a>
+  <span style="display:inline-block;width:8px"></span>
+  <a href="/alertRecord" class="btn">查看警報紀錄 →</a>
+  <span style="display:inline-block;width:8px"></span>
+  <a href="/docs" class="btn">API 文件 →</a>
+</div>
+
+<div class="card">
+  <div class="section-label">SYSTEM INFO</div>
+  <table>
+    <tr><td style="color:var(--muted);width:160px">狀態</td><td style="color:var(--ok)">● RUNNING</td></tr>
+    <tr><td style="color:var(--muted)">模型</td><td>XGBoost</td></tr>
+    <tr><td style="color:var(--muted)">XAI</td><td>SHAP + LIME</td></tr>
+    <tr><td style="color:var(--muted)">蜜罐</td><td>Cowrie</td></tr>
+    <tr><td style="color:var(--muted)">API</td><td>FastAPI + Uvicorn</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <div class="section-label">CONFIDENCE ZONES</div>
+  <table>
+    <tr>
+      <td style="width:160px"><span class="badge badge-UNCERTAIN">UNCERTAIN</span></td>
+      <td style="color:var(--muted);font-size:12px">conf &lt; 0.6　→　存 log，不發警報，不做 XAI</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-SUSPICIOUS">SUSPICIOUS</span></td>
+      <td style="color:var(--muted);font-size:12px">0.6 ≤ conf &lt; 0.85　→　發警報 + SHAP</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-HIGH_CONF">HIGH_CONF</span></td>
+      <td style="color:var(--muted);font-size:12px">conf ≥ 0.85　→　發警報 + SHAP + LIME + 蜜罐驗證</td>
+    </tr>
+  </table>
+</div>
+
+{% endblock %}

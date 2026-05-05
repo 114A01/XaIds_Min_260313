@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}XAI #{{ id }} — XaIDS Dashboard{% endblock %}
+{% block content %}
+
+<h1>// XAI EXPLANATION — ALERT #{{ id }}</h1>
+
+<!-- 載入狀態 -->
+<div id="loading" class="card" style="color:var(--muted);text-align:center;padding:2rem;">
+  正在載入解釋資料...
+</div>
+
+<!-- 主內容（載入後顯示） -->
+<div id="xai-content" style="display:none;">
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+
+    <!-- SHAP -->
+    <div class="card" id="shap-card">
+      <div class="section-label">
+        SHAP
+        <span id="shap-prediction-badge" style="margin-left:6px"></span>
+      </div>
+      <div id="shap-features"></div>
+    </div>
+
+    <!-- LIME -->
+    <div class="card" id="lime-card">
+      <div class="section-label">
+        LIME
+        <span id="lime-prediction-badge" style="margin-left:6px"></span>
+      </div>
+      <div id="lime-features"></div>
+      <div id="lime-unavailable" style="display:none;color:var(--muted);font-size:12px;padding:1rem 0;">
+        LIME 僅在 HIGH_CONF 區間執行。
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 原始 JSON（收合） -->
+  <div class="card">
+    <div class="section-label" style="cursor:pointer;user-select:none;" onclick="toggleRaw()">
+      RAW DATA <span id="raw-toggle" style="float:right;color:var(--accent)">▼ 展開</span>
+    </div>
+    <div id="raw-data" style="display:none;margin-top:.75rem;">
+      <div style="margin-bottom:.5rem;font-size:11px;color:var(--muted)">SHAP</div>
+      <pre id="shap-raw" style="font-size:11px;color:var(--muted);white-space:pre-wrap;word-break:break-all;"></pre>
+      <div style="margin:1rem 0 .5rem;font-size:11px;color:var(--muted)">LIME</div>
+      <pre id="lime-raw" style="font-size:11px;color:var(--muted);white-space:pre-wrap;word-break:break-all;"></pre>
+    </div>
+  </div>
+
+</div>
+
+<!-- 錯誤狀態 -->
+<div id="xai-error" style="display:none;" class="card">
+  <span style="color:var(--danger)">✕</span>
+  <span id="error-msg" style="color:var(--muted);margin-left:8px;font-size:12px;"></span>
+</div>
+
+<div style="margin-top:.5rem">
+  <a href="/alertRecord" class="btn">← 返回警報列表</a>
+</div>
+
+<script>
+  function renderFeatures(containerId, features) {
+    const container = document.getElementById(containerId);
+    if (!features || features.length === 0) {
+      container.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:.5rem 0;">無特徵資料</div>';
+      return;
+    }
+    const maxAbs = Math.max(...features.map(([, v]) => Math.abs(v)), 0.001);
+    container.innerHTML = features.map(([feat, val]) => {
+      const pct = Math.min((Math.abs(val) / maxAbs) * 100, 100).toFixed(1);
+      const color = val > 0 ? 'var(--danger)' : 'var(--ok)';
+      const sign = val > 0 ? '+' : '';
+      return `
+        <div style="margin-bottom:.6rem">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+            <span>${feat}</span>
+            <span style="color:${color}">${sign}${val.toFixed(4)}</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:${pct}%;background:${color};"></div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function renderBadge(elementId, prediction) {
+    if (!prediction) return;
+    const el = document.getElementById(elementId);
+    const cls = prediction === 'attack' ? 'badge-attack'
+              : prediction === 'normal' ? 'badge-normal'
+              : 'badge-suspicious';
+    el.innerHTML = `<span class="badge ${cls}">${prediction}</span>`;
+  }
+
+  function toggleRaw() {
+    const raw = document.getElementById('raw-data');
+    const btn = document.getElementById('raw-toggle');
+    const visible = raw.style.display !== 'none';
+    raw.style.display = visible ? 'none' : 'block';
+    btn.textContent = visible ? '▼ 展開' : '▲ 收合';
+  }
+
+  async function loadExplanations() {
+    const id = "{{ id }}";
+    const loading = document.getElementById('loading');
+    const content = document.getElementById('xai-content');
+    const errorDiv = document.getElementById('xai-error');
+    const errorMsg = document.getElementById('error-msg');
+
+    try {
+      const [shapRes, limeRes] = await Promise.allSettled([
+        fetch(`/explain/${id}/shap`).then(r => r.json()),
+        fetch(`/explain/${id}/lime`).then(r => r.json()),
+      ]);
+
+      loading.style.display = 'none';
+
+      // SHAP
+      if (shapRes.status === 'fulfilled') {
+        const shap = shapRes.value;
+        renderBadge('shap-prediction-badge', shap.prediction);
+        const feats = Array.isArray(shap.features) ? shap.features
+                    : Object.entries(shap.features || {});
+        renderFeatures('shap-features', feats);
+        document.getElementById('shap-raw').textContent = JSON.stringify(shap, null, 2);
+      } else {
+        document.getElementById('shap-features').innerHTML =
+          '<div style="color:var(--danger);font-size:12px;">SHAP 資料載入失敗</div>';
+      }
+
+      // LIME
+      if (limeRes.status === 'fulfilled') {
+        const lime = limeRes.value;
+        if (lime && !lime.unavailable) {
+          renderBadge('lime-prediction-badge', lime.prediction);
+          const feats = Array.isArray(lime.features) ? lime.features
+                      : Object.entries(lime.features || {});
+          renderFeatures('lime-features', feats);
+          document.getElementById('lime-raw').textContent = JSON.stringify(lime, null, 2);
+        } else {
+          document.getElementById('lime-unavailable').style.display = 'block';
+        }
+      } else {
+        document.getElementById('lime-unavailable').style.display = 'block';
+      }
+
+      content.style.display = 'block';
+
+    } catch (err) {
+      loading.style.display = 'none';
+      errorMsg.textContent = '載入失敗：' + err.message;
+      errorDiv.style.display = 'block';
+    }
+  }
+
+  loadExplanations();
+</script>
+
+{% endblock %}

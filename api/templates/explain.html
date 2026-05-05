@@ -21,5 +21,13 @@
             limeDiv.innerHTML = "<h2>LIME Explanation</h2><pre>" + JSON.stringify(data, null, 2) + "</pre>";
         })
         .catch(error => console.error("Error fetching LIME explanation:", error));
+    
+    fetch("/explain/{{id}}/shap")
+        .then(response => response.json())
+        .then(data => {
+            const shapDiv = document.getElementById("shap");
+            shapDiv.innerHTML = "<h2>SHAP Explanation</h2><pre>" + JSON.stringify(data, null, 2) + "</pre>";
+        })
+        .catch(error => console.error("Error fetching SHAP explanation:", error));
 </script>
 </html>

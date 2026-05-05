@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}警報紀錄 — XaIDS Dashboard{% endblock %}
+{% block content %}
+
+<h1>// ALERT RECORDS</h1>
+
+<div class="card" style="padding:0;overflow:hidden;">
+  <table>
+    <thead>
+      <tr>
+        <th>ALERT ID</th>
+        <th>FLOW ID</th>
+        <th>ATTACK TYPE</th>
+        <th>CONFIDENCE</th>
+        <th>ZONE</th>
+        <th>STATUS</th>
+        <th>TIME</th>
+        <th>ACTION</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for alert in alerts %}
+      <tr>
+        <td style="color:var(--muted)">#{{ alert.alert_id }}</td>
+        <td style="color:var(--muted)">{{ alert.flow_id }}</td>
+        <td>
+          {% if alert.attack_type %}
+            <span class="badge badge-attack">{{ alert.attack_type }}</span>
+          {% else %}
+            <span style="color:var(--muted)">—</span>
+          {% endif %}
+        </td>
+        <td>
+          <div class="conf-bar">
+            <span style="font-size:12px;min-width:38px">{{ "%.2f"|format(alert.confidence) }}</span>
+            <div class="conf-track">
+              <div class="conf-fill" style="
+                width:{{ (alert.confidence * 100)|round }}%;
+                background:{% if alert.confidence >= 0.85 %}var(--danger){% elif alert.confidence >= 0.6 %}var(--warn){% else %}var(--muted){% endif %};
+              "></div>
+            </div>
+          </div>
+        </td>
+        <td><span class="badge badge-{{ alert.conf_zone }}">{{ alert.conf_zone }}</span></td>
+        <td><span class="badge badge-{{ alert.status }}">{{ alert.status }}</span></td>
+        <td style="color:var(--muted);font-size:12px">{{ alert.alert_time }}</td>
+        <td>
+          <a href="/explain/{{ alert.alert_id }}" class="btn" style="font-size:11px;padding:3px 10px">XAI</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div style="margin-top:.5rem">
+  <a href="/" class="btn">← 返回首頁</a>
+</div>
+
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}封包紀錄 — XaIDS Dashboard{% endblock %}
+{% block content %}
+
+<h1>// PACKET RECORDS</h1>
+
+<div class="card" style="padding:0;overflow:hidden;">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>SOURCE IP</th>
+        <th>DESTINATION IP</th>
+        <th>PROTOCOL</th>
+        <th>SIZE</th>
+        <th>TIME</th>
+        <th>ACTION</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for packet in packets %}
+      <tr>
+        <td style="color:var(--muted)">#{{ packet.id }}</td>
+        <td>{{ packet.source_ip }}</td>
+        <td>{{ packet.destination_ip }}</td>
+        <td style="color:var(--muted)">{{ packet.protocol }}</td>
+        <td style="color:var(--muted)">{{ packet.size }} B</td>
+        <td style="color:var(--muted);font-size:12px">{{ packet.time }}</td>
+        <td>
+          <a href="/explain/{{ packet.id }}" class="btn" style="font-size:11px;padding:3px 10px">XAI</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div style="margin-top:.5rem">
+  <a href="/" class="btn">← 返回首頁</a>
+</div>
+
+{% endblock %}
