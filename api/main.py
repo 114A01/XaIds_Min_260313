@@ -1,10 +1,17 @@
 from pathlib import Path
+import asyncio
+import json
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
 from db.repository import init_pool, close_pool, get_packets, get_explanation_lime, get_explanation_shap, get_flows, get_alerts
 from contextlib import asynccontextmanager
+from core import pipeline
+from config import DATA_DIR
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -68,3 +75,63 @@ async def explain_shap(id: str):
 @app.get("/explain/{id}/consistent")                        # 回傳指定封包的一致性解釋，供解釋頁面顯示
 async def explain_consistent(id: str):
     return {"message" : "This is a consistent explanation message"}
+
+@app.get("/analysis")
+async def analysis_page(request: Request):                                   # 分析頁面，展示可供分析的檔案列表，並提供選擇後開始分析的功能
+    return templates.TemplateResponse(request, "analysis.html")
+
+@app.get("/files")
+async def list_files():
+    files = [f.name for f in DATA_DIR.glob("*.csv")]
+
+    return {"files": files}
+
+class StartRequest(BaseModel):
+    filename: str
+
+@app.post("/analysis/start") # 選定檔案，並開始分析
+async def start_analysis(body: StartRequest):
+    state = pipeline.analysis_state
+
+    if state["running"]:
+        raise HTTPException(status_code=409, detail="分析任務已在執行中，請先呼叫 /analysis/stop")
+    
+    filepath = DATA_DIR / body.filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="指定的檔案不存在")
+    
+    stop_event = asyncio.Event()
+    state["running"] = True
+    state["filename"] = body.filename
+    state["stop_event"] = stop_event
+    state["processed"] = 0
+    state["total"] = 0
+
+    asyncio.create_task(pipeline.run_csv_analysis(filepath, stop_event))
+
+    return {"status": "started", "filename": body.filename}
+
+@app.post("/analysis/stop") # 停止分析
+async def analysis_stop():
+    state = pipeline.analysis_state
+
+    if not state["running"]:
+        return {"status": "no task running"}
+    if state["stop_event"]:
+        state["stop_event"].set()
+    return {"status": "stopping"}
+
+@app.get("/stream")
+async def stream(request: Request):
+    async def event_generator():
+        yield 'data: {"zone" : "CONNECTED"}\n\n' 
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                event = await asyncio.wait_for(pipeline.sse_queue.get(), timeout=15)
+                yield f"data: {json.dump(event)}\n\n"
+            except:
+                yield 'data: {"zone": "HEARTBEAT}\n\n'
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

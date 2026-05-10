@@ -7,6 +7,6 @@ import pandas as pd
 
 def transform(record):    #對原始的特徵資料進行清洗和轉換, 並回傳供模型使用的資料
     # 在這裡進行特徵清洗和轉換的邏輯
-    record = pd.DataFrame([record]).drop(columns=[' Label'], errors='ignore')  # 將單條記錄轉換為DataFrame格式
+    record = pd.DataFrame([record]).drop(columns=['label'], errors='ignore')  # 將單條記錄轉換為DataFrame格式
     return record
 

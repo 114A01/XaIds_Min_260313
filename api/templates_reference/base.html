@@ -150,6 +150,7 @@
     <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>首頁</a>
     <a href="/packetRecord" {% if request.url.path.startswith("/packetRecord") %}class="active"{% endif %}>封包紀錄</a>
     <a href="/alertRecord" {% if request.url.path.startswith("/alertRecord") %}class="active"{% endif %}>警報紀錄</a>
+    <a href="/analysis" {% if request.url.path.startswith("/analysis") %}class="active"{% endif %}>CSV 分析</a>
   </nav>
   <div class="container">
     {% block content %}{% endblock %}

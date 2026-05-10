@@ -3,6 +3,7 @@ import os
 import asyncio
 import numpy as np
 import pandas as pd
+import traceback
 
 from core.explainer import explain_lime, explain_shap
 from core.consistency import compare_shap_lime
@@ -10,60 +11,103 @@ from core.modelPredict import predict, predict_prob
 from stream.catcher import Start
 from core.preprocessor import transform
 from db.repository import insert_flow, init_pool, close_pool, insert_alert, insert_explain_lime, insert_explain_shap, get_packets, get_explanation_lime
+from config import feature_names, class_names, CONFIDENCE_HIGH, CONFIDENCE_LOW, REPLAY_LIMIT
 
-bundle_data = joblib.load('./saved_models/training_data.pkl')
-feature_names = bundle_data['feature_names']
-class_names = bundle_data['class_names']
+sse_queue: asyncio.Queue = asyncio.Queue()
+
+analysis_state: dict = {
+    "running": False,
+    "file_name": None,
+    "total": 0,
+    "processed": 0,
+    "stop_event": None
+}
 
 async def process(record):
     try:
         feature = transform(record)        #進行預處理
         prediction = predict(feature)
-        prob = predict_prob(feature)
-
-        flow_id =await insert_flow(record, feature)  # 將封包資料插入資料庫
+        prob = predict_prob(feature)[0]
+        confidence = float(prob[prediction])
+        flow_id = await insert_flow(record, feature)  # 將封包資料插入資料庫
+        label = class_names[prediction]
 
         print("預測結果:", class_names[prediction])
         print("預測機率:", prob[prediction])
 
-        if prob[prediction] >= 0.6:
-            conf_zone = 'HIGH_CONF' if prob[prediction] > 0.9 else 'SUSPICIOUS'
-            alert_data = {
+        if confidence < CONFIDENCE_LOW:
+            event = {
+                "zone": "UNCERTAIN",
+                "confidence": f"{confidence:.4f}",
                 "flow_id": flow_id,
-                "attack_type": class_names[prediction],
-                "confidence": prob[prediction],
-                "conf_zone": conf_zone,
-                "status": 'unhandled',
             }
-            alert_id = await insert_alert(alert_data)  # 將警報資料插入資料庫
+            await sse_queue.put(event)  # 將事件放入 SSE 佇列
+            return event
+        
+        conf_zone = 'HIGH_CONF' if confidence >= CONFIDENCE_HIGH else 'SUSPICIOUS'
+        alert_id = await insert_alert({
+            "flow_id": flow_id,
+            "attack_type": label,
+            "confidence": f"{confidence:.4f}",
+            "conf_zone": conf_zone,
+            "status": 'unhandled',
+        })  # 將警報資料插入資料庫
+        
+        # print("\nSHAP 解釋:")
+        shap_explanation, base_value = explain_shap(feature.values[0], prediction)
+        await insert_explain_shap(shap_explanation, f"{base_value:.6f}", alert_id)  # 將 SHAP 解釋插入資料庫
 
-            if conf_zone == 'SUSPICIOUS' or conf_zone == 'HIGH_CONF':
+        event = {
+            "zone": conf_zone,
+            "alert_id": alert_id,
+            "attack_type": label,
+            "confidence": round(confidence, 4),
+            "shap_top3": [
+                {"feature": name, "weight": round(weight, 4)}
+                for name, weight in shap_explanation[:3]
+            ]
+        }
 
-                print("\nSHAP 解釋:")
-                shap_explanation, base_value = explain_shap(feature.values[0])
-                print(f"Base Value: {base_value:.4f}")
-                for feature_name, shap_value in shap_explanation:
-                    print(f"{feature_name}: {shap_value:.4f}")  
+        if conf_zone == 'HIGH_CONF':
+            lime_explanation = explain_lime(feature.values[0])
+            await insert_explain_lime(lime_explanation, alert_id)  # 將 LIME 解釋插入資料庫
+            comparison_result = compare_shap_lime(shap_explanation, lime_explanation)
 
-                await insert_explain_shap(shap_explanation, base_value, alert_id)  # 將 SHAP 解釋插入資料庫
-            
-            if conf_zone == 'HIGH_CONF':
-                print("\nLIME 解釋:")
-                lime_explanation = explain_lime(feature.values[0])
+            event["lime_top3"] = [
+                {"feature": name, "weight": round(weight, 4)}
+                for name, weight in lime_explanation[:3]
+            ]
+            event["consistency_score"] = round(comparison_result['consistency_score'], 4)
 
-                for feature_name, importance in lime_explanation:
-                    print(f"{feature_name}: {importance:.4f}")
-
-                await insert_explain_lime(lime_explanation, alert_id)  # 將 LIME 解釋插入資料庫
-
-                comparison_result = compare_shap_lime(shap_explanation, lime_explanation)
-                print("\n一致性比較結果:")
-                print(f"Consistency Score: {comparison_result['consistency_score']:.4f}")
-                print(f"Common Features in Top-k: {comparison_result['common_feature']}")
+        await sse_queue.put(event)  # 將事件放入 SSE 佇列
+        return event
 
     except Exception as e:
-        print("Error in preprocessing:", e)
+        traceback.print_exc()
         return
+
+async def run_csv_analysis(file_path, stop_event):
+    df = pd.read_csv(file_path, nrows=REPLAY_LIMIT)
+
+    analysis_state["total"] = len(df)
+    analysis_state["processed"] = 0
+
+    for idx, row in df.iterrows():
+        if stop_event.is_set():
+            print("分析已停止")
+            break
+        try:
+            await process(row.to_dict())
+        except Exception as e:
+            print(f"Error processing row {idx}: {e}")
+        analysis_state["processed"] += 1
+    
+    analysis_state["running"] = False
+    await sse_queue.put({
+        "zone": "DONE",
+        "processed": analysis_state["processed"],
+        "total": analysis_state["total"]
+    })
 
 async def pipeline_queue(queue):
     while True:
@@ -86,4 +130,3 @@ async def launch_pipeline():
         pass
     finally:
         await close_pool()  # 關閉資料庫連接池
-asyncio.run(launch_pipeline())

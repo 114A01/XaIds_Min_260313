@@ -8,14 +8,11 @@ mode = "replay"  # "replay" 或 "pcap"
 # mode = "pcap"
 
 def Start(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue): #外部程式呼叫，開始捕獲封包的流程
-    if mode == "pcap":
-        threads = threading.Thread(target=_capture_loop, args=(loop, queue), daemon=True)
-    elif mode == "replay":
-        threads = threading.Thread(target=_replay_loop, args=(loop, queue), daemon=True)
+    threads = threading.Thread(target=_capture_loop, args=(loop, queue), daemon=True)
     threads.start()
 
 def _replay_loop(loop, queue): #重放封包的迴圈
-    df = pd.read_csv("./data/Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv")
+    df = pd.read_csv("/mnt/d/DATASET/CSV/DDoS-HTTP_Flood/DDoS-HTTP_Flood-.pcap.csv")
     for _, row in df.iterrows():
         record = row.to_dict()  #將資料庫中的資料轉換成可儲存的特徵資料
         asyncio.run_coroutine_threadsafe(queue.put(record), loop)  #將特徵資料放入佇列中，等待後續處理
@@ -44,7 +41,7 @@ def _extract_features(packet) -> dict | None:  #將擷取到的封包轉換成�
     protocol = "TCP" if packet.haslayer(TCP) else "UDP" if packet.haslayer(UDP) else "OTHER"
 
     return {
-        "time": datetime.datetime.now(),
+        "time": datetime.now().isoformat(),
         "source_ip": ip.src,
         "destination_ip": ip.dst,
         "protocol": protocol,

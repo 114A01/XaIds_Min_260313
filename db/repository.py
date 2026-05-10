@@ -1,31 +1,8 @@
-import mysql.connector
 import aiomysql
 from mysql.connector import Error
 import json
 import datetime
 import uuid
-
-mydb = mysql.connector.connect(
-    host="localhost",
-    user="allen",
-    password="allen",
-    database="xaids",
-    use_pure=True
-)
-
-# FAKE_PACKETS = [
-#     {"id": "001", "src_ip": "192.168.1.105", "dst_ip": "10.0.0.1",  "protocol": "TCP", "length": 1420, "label": "normal",    "status": "confirmed", "note": ""},
-#     {"id": "002", "src_ip": "203.0.113.42",  "dst_ip": "10.0.0.5",  "protocol": "UDP", "length": 64,   "label": "attack",     "status": "pending",   "note": ""},
-#     {"id": "003", "src_ip": "10.1.2.3",      "dst_ip": "10.0.0.1",  "protocol": "TCP", "length": 520,  "label": "normal",     "status": "confirmed", "note": "內部流量"},
-#     {"id": "004", "src_ip": "198.51.100.77", "dst_ip": "10.0.0.9",  "protocol": "ICMP","length": 1024, "label": "suspicious", "status": "pending",   "note": ""},
-#     {"id": "005", "src_ip": "172.16.0.88",   "dst_ip": "10.0.0.2",  "protocol": "TCP", "length": 256,  "label": "attack",     "status": "pending",   "note": ""},
-# ]
-
-# FAKE_EXPLANATIONS_lime = [
-#     {"explanations": [{"rule": "2.00 < Subflow Fwd Packets <= 4.00", "weight": 0.0027143669991300553}, {"rule": "64.00 <  Fwd Header Length <= 104.00", "weight": 0.0027039148121743785}, {"rule": "64.00 <  Fwd Header Length.1 <= 104.00", "weight": 0.002620197858723672}]},
-#     {"explanations": [{"rule": "64.00 <  Fwd Header Length.1 <= 104.00", "weight": 0.002795238165471092}, {"rule": "64.00 <  Fwd Header Length <= 104.00", "weight": 0.0025182891813858802}, {"rule": "2.00 <  Total Fwd Packets <= 4.00", "weight": 0.002416458033077221}]},
-#     {"explanations": [{"rule": "64.00 <  Fwd Header Length.1 <= 104.00", "weight": 0.002220058679421769}, {"rule": "64.00 <  Fwd Header Length <= 104.00", "weight": 0.0021850842382679704}, {"rule": "2.00 <  Total Fwd Packets <= 4.00", "weight": 0.0021695497786990508}]},
-# ]
 
 async def init_pool():
     global pool
@@ -34,7 +11,8 @@ async def init_pool():
         user="allen",
         password="allen",
         db="xaids",
-        cursorclass = aiomysql.DictCursor
+        cursorclass = aiomysql.DictCursor,
+        autocommit=False
     )
 
 async def close_pool():
@@ -52,16 +30,14 @@ async def get_packets():
 async def get_flows():
     async with pool.acquire() as conn:
         async with conn.cursor() as cursor:
-            await cursor.execute("SELECT * FROM flow")
-            results = await cursor.fetchall()
-            return results
+            await cursor.execute("SELECT * FROM flow ORDER BY start_time DESC")
+            return await cursor.fetchall()
 
 async def get_alerts():
     async with pool.acquire() as conn:
         async with conn.cursor() as cursor:
-            await cursor.execute("SELECT * FROM alert")
-            results = await cursor.fetchall()
-            return results
+            await cursor.execute("SELECT * FROM alert ORDER BY alert_time DESC")
+            return await cursor.fetchall()
 
 async def get_explanation_lime(alert_id: str):
     # 在這裡根據 packet_id 從資料庫中查詢對應的 LIME 解釋
@@ -90,7 +66,7 @@ async def insert_flow(record, feature):
             if hasattr(feature, 'to_dict'):
                 computed_features = feature.iloc[0].to_dict()  # 將 DataFrame 行轉換為字典
             else:
-                computed_features = feature.to_list()  # 如果不是 DataFrame，直接轉換為列表
+                computed_features = {str(i): v for i, v in enumerate(feature)}  # 如果不是 DataFrame，直接轉換為列表
 
             sql = "INSERT INTO flow (id, source_ip, destination_ip, source_port, destination_port, protocol, start_time, computed_features) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
             values = (flow_id, record.get('source_ip'), record.get('destination_ip'), record.get('source_port'), record.get('destination_port'), record.get('protocol'), record.get('start_time'), json.dumps(computed_features))
@@ -105,7 +81,6 @@ async def insert_alert(alert_data):
             sql = "INSERT INTO alert (alert_id, flow_id, attack_type, confidence, conf_zone, status, alert_time) VALUES (%s, %s, %s, %s, %s, %s, %s)"
             values = (alert_id, alert_data.get('flow_id'), alert_data.get('attack_type'), alert_data.get('confidence'), alert_data.get('conf_zone'), alert_data.get('status'), datetime.datetime.now())
             await cursor.execute(sql, values)
-            print("插入警報資料庫成功")
             await conn.commit()
             return alert_id
 

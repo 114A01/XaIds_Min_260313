@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}CSV 分析 — XaIDS{% endblock %}
+{% block content %}
+
+<h1>// CSV ANALYSIS</h1>
+
+<!-- 檔案選擇 -->
+<div class="card">
+  <div class="section-label">SELECT FILE</div>
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <select id="fileSelect" style="
+      background:var(--bg);border:1px solid var(--border);color:var(--text);
+      font-family:var(--font);font-size:13px;padding:6px 10px;border-radius:4px;flex:1;min-width:200px
+    ">
+      <option value="">-- 載入中 --</option>
+    </select>
+    <button class="btn btn-primary" onclick="startAnalysis()">▶ 開始分析</button>
+    <button class="btn" onclick="stopAnalysis()">■ 停止</button>
+  </div>
+</div>
+
+<!-- 進度 -->
+<div class="card">
+  <div class="section-label">PROGRESS</div>
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px">
+    <span id="statusBadge" class="badge badge-UNCERTAIN">IDLE</span>
+    <span id="progressText" style="color:var(--muted);font-size:13px">尚未開始</span>
+  </div>
+  <div style="background:var(--border);border-radius:3px;height:6px;overflow:hidden">
+    <div id="progressBar" style="height:100%;background:var(--accent);width:0%;transition:width .3s;border-radius:3px"></div>
+  </div>
+</div>
+
+<!-- 統計 -->
+<div class="stats" style="grid-template-columns:repeat(4,1fr)">
+  <div class="card stat-card">
+    <div class="stat-label">UNCERTAIN</div>
+    <div class="stat-num" id="cntUncertain" style="color:var(--muted)">0</div>
+  </div>
+  <div class="card stat-card">
+    <div class="stat-label">SUSPICIOUS</div>
+    <div class="stat-num" id="cntSuspicious" style="color:var(--warn)">0</div>
+  </div>
+  <div class="card stat-card">
+    <div class="stat-label">HIGH_CONF</div>
+    <div class="stat-num" id="cntHighConf" style="color:var(--danger)">0</div>
+  </div>
+  <div class="card stat-card">
+    <div class="stat-label">TOTAL</div>
+    <div class="stat-num" id="cntTotal" style="color:var(--text)">0</div>
+  </div>
+</div>
+
+<!-- 即時結果 -->
+<div class="card">
+  <div class="section-label">LIVE RESULTS</div>
+  <div style="max-height:480px;overflow-y:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>ZONE</th>
+          <th>LABEL</th>
+          <th>CONF</th>
+          <th>TOP SHAP FEATURE</th>
+          <th>CONSISTENCY</th>
+        </tr>
+      </thead>
+      <tbody id="resultBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let evtSource = null;
+let rowCount  = 0;
+const cnt = { UNCERTAIN: 0, SUSPICIOUS: 0, HIGH_CONF: 0 };
+
+async function loadFiles() {
+  const res  = await fetch("/files");
+  const data = await res.json();
+  const sel  = document.getElementById("fileSelect");
+  sel.innerHTML = data.files.length
+    ? data.files.map(f => `<option value="${f}">${f}</option>`).join("")
+    : '<option value="">data/ 目錄下沒有 CSV 檔案</option>';
+}
+
+async function startAnalysis() {
+  const filename = document.getElementById("fileSelect").value;
+  if (!filename) { alert("請先選擇 CSV 檔案"); return; }
+
+  document.getElementById("resultBody").innerHTML = "";
+  rowCount = 0;
+  cnt.UNCERTAIN = cnt.SUSPICIOUS = cnt.HIGH_CONF = 0;
+  updateCounters();
+  setStatus("RUNNING", "var(--accent)");
+  document.getElementById("progressBar").style.width = "0%";
+  document.getElementById("progressText").textContent = "分析中…";
+
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource("/stream");
+  evtSource.onmessage = e => handleEvent(JSON.parse(e.data));
+
+  const res = await fetch("/analysis/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err.detail || "啟動失敗");
+    if (evtSource) evtSource.close();
+  }
+}
+
+async function stopAnalysis() {
+  await fetch("/analysis/stop", { method: "POST" });
+}
+
+function handleEvent(ev) {
+  if (ev.zone === "CONNECTED" || ev.zone === "HEARTBEAT") return;
+
+  if (ev.zone === "DONE") {
+    setStatus("DONE", "var(--ok)");
+    document.getElementById("progressBar").style.width = "100%";
+    document.getElementById("progressText").textContent =
+      `完成：共處理 ${ev.processed} / ${ev.total} 筆`;
+    if (evtSource) evtSource.close();
+    return;
+  }
+
+  if (ev.zone in cnt) { cnt[ev.zone]++; updateCounters(); }
+  pollProgress();
+
+  rowCount++;
+  const topShap    = ev.shap_top3 ? ev.shap_top3[0] : null;
+  const topShapTxt = topShap
+    ? `${topShap.feature} (${topShap.weight > 0 ? "+" : ""}${topShap.weight})`
+    : "—";
+  const consistency = ev.consistency_score !== undefined
+    ? `${(ev.consistency_score * 100).toFixed(1)}%` : "—";
+  const zoneColor = {
+    UNCERTAIN: "var(--muted)",
+    SUSPICIOUS: "var(--warn)",
+    HIGH_CONF: "var(--danger)"
+  };
+
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td style="color:var(--muted)">${rowCount}</td>
+    <td><span class="badge badge-${ev.zone}">${ev.zone}</span></td>
+    <td>${ev.attack_type || "—"}</td>
+    <td>
+      <div class="conf-bar">
+        <div class="conf-track">
+          <div class="conf-fill" style="width:${(ev.confidence||0)*100}%;background:${zoneColor[ev.zone]||'var(--accent)'}"></div>
+        </div>
+        <span style="font-size:11px;color:var(--muted)">${ev.confidence ? (ev.confidence*100).toFixed(1)+"%" : "—"}</span>
+      </div>
+    </td>
+    <td style="font-size:11px;color:var(--muted);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${topShapTxt}</td>
+    <td style="font-size:12px">${consistency}</td>
+  `;
+  document.getElementById("resultBody").prepend(tr);
+}
+
+function updateCounters() {
+  document.getElementById("cntUncertain").textContent  = cnt.UNCERTAIN;
+  document.getElementById("cntSuspicious").textContent = cnt.SUSPICIOUS;
+  document.getElementById("cntHighConf").textContent   = cnt.HIGH_CONF;
+  document.getElementById("cntTotal").textContent =
+    cnt.UNCERTAIN + cnt.SUSPICIOUS + cnt.HIGH_CONF;
+}
+
+function setStatus(label, color) {
+  const badge = document.getElementById("statusBadge");
+  badge.textContent = label;
+  badge.style.background = "transparent";
+  badge.style.color = color;
+  badge.style.border = `1px solid ${color}`;
+}
+
+async function pollProgress() {
+  const res  = await fetch("/analysis/status");
+  const data = await res.json();
+  if (data.total > 0) {
+    const pct = (data.processed / data.total * 100).toFixed(0);
+    document.getElementById("progressBar").style.width = pct + "%";
+    document.getElementById("progressText").textContent =
+      `${data.processed} / ${data.total} 筆`;
+  }
+}
+
+loadFiles();
+</script>
+
+{% endblock %}
