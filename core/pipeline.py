@@ -40,6 +40,8 @@ async def process(record):
                 "zone": "UNCERTAIN",
                 "confidence": f"{confidence:.4f}",
                 "flow_id": flow_id,
+                "processed": analysis_state["processed"],
+                "total": analysis_state["total"]
             }
             await sse_queue.put(event)  # 將事件放入 SSE 佇列
             return event
@@ -65,7 +67,9 @@ async def process(record):
             "shap_top3": [
                 {"feature": name, "weight": round(weight, 4)}
                 for name, weight in shap_explanation[:3]
-            ]
+            ],
+            "processed": analysis_state["processed"],
+            "total": analysis_state["total"]
         }
 
         if conf_zone == 'HIGH_CONF':

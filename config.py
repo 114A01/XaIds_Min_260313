@@ -12,7 +12,7 @@ REPLAY_LIMIT = 100
 CONFIDENCE_LOW  = 0.6    # < 0.6  → UNCERTAIN
 CONFIDENCE_HIGH = 0.85   # ≥ 0.85 → HIGH_CONF，否則 SUSPICIOUS
 
-pack = joblib.load('/mnt/c/Users/pccu1/Desktop/randomforest/models/complete_model_20260508_210127.joblib')
+pack = joblib.load('/mnt/c/Users/pccu1/Desktop/project-model/randomforest/models/complete_model_20260512_131827.joblib')
 model = pack['model']
 label_encoder = pack['label_encoder']
 feature_names = pack['feature_names']

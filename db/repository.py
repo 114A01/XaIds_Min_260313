@@ -106,6 +106,21 @@ async def insert_explain_shap(shap_explanation, base_value, alert_id):
             await cursor.execute(sql, values)
             await conn.commit()
 
+async def get_flow_count():
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("select count(*) as total from flow")
+            row = await cursor.fetchone()
+            return row["total"]
+
+async def get_alert_count():
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("select count(*) as total from alert")
+            row = await cursor.fetchone()
+            return row["total"]
+
+
 # async def insert_comparison_result(comparison_result, alert_id):
 #     async with pool.acquire() as conn:
 #         async with conn.cursor() as cursor:

@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from db.repository import init_pool, close_pool, get_packets, get_explanation_lime, get_explanation_shap, get_flows, get_alerts
+from db.repository import init_pool, close_pool, get_packets, get_explanation_lime, get_explanation_shap, get_flows, get_alerts, get_flow_count, get_alert_count
 from contextlib import asynccontextmanager
 from core import pipeline
 from config import DATA_DIR
@@ -121,6 +121,16 @@ async def analysis_stop():
         state["stop_event"].set()
     return {"status": "stopping"}
 
+@app.get("/analysis/status")
+async def analysis_status():
+    state = pipeline.analysis_state
+    return {
+        "running":  state["running"],
+        "filename": state["filename"],
+        "total":    state["total"],
+        "processed":state["processed"]
+    }
+
 @app.get("/stream")
 async def stream(request: Request):
     async def event_generator():
@@ -130,8 +140,18 @@ async def stream(request: Request):
                 break
             try:
                 event = await asyncio.wait_for(pipeline.sse_queue.get(), timeout=15)
-                yield f"data: {json.dump(event)}\n\n"
+                yield f"data: {json.dumps(event)}\n\n"
             except:
-                yield 'data: {"zone": "HEARTBEAT}\n\n'
+                yield 'data: {"zone": "HEARTBEAT"}\n\n'
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+@app.get("/flow/number")
+async def get_flow_number():
+    count = await get_flow_count()
+    return {"flow_count": count}
+
+@app.get("/alert/number")
+async def get_alert_number():
+    count = await get_alert_count()
+    return {"alert_count": count}

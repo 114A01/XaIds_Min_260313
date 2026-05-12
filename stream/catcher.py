@@ -4,21 +4,9 @@ import pandas as pd
 from datetime import datetime
 from scapy.all import sniff, IP, TCP, UDP
 
-mode = "replay"  # "replay" 或 "pcap"
-# mode = "pcap"
-
 def Start(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue): #外部程式呼叫，開始捕獲封包的流程
     threads = threading.Thread(target=_capture_loop, args=(loop, queue), daemon=True)
     threads.start()
-
-def _replay_loop(loop, queue): #重放封包的迴圈
-    df = pd.read_csv("/mnt/d/DATASET/CSV/DDoS-HTTP_Flood/DDoS-HTTP_Flood-.pcap.csv")
-    for _, row in df.iterrows():
-        record = row.to_dict()  #將資料庫中的資料轉換成可儲存的特徵資料
-        asyncio.run_coroutine_threadsafe(queue.put(record), loop)  #將特徵資料放入佇列中，等待後續處理
-        # 只讀取一筆資料進行測試
-        if _ == 0:
-            break
 
 def _capture_loop(loop, queue): #擷取風包的迴圈
     sniff(
