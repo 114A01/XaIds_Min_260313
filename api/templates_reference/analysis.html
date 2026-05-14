@@ -64,6 +64,7 @@
           <th>CONF</th>
           <th>TOP SHAP FEATURE</th>
           <th>CONSISTENCY</th>
+          <th>DETAIL</th>
         </tr>
       </thead>
       <tbody id="resultBody"></tbody>
@@ -130,7 +131,12 @@ function handleEvent(ev) {
   }
 
   if (ev.zone in cnt) { cnt[ev.zone]++; updateCounters(); }
-  pollProgress();
+  if (ev.total > 0) {
+    const pct = (ev.processed / ev.total * 100).toFixed(0);
+    document.getElementById("progressBar").style.width = pct + "%";
+    document.getElementById("progressText").textContent =
+      `${ev.processed} / ${ev.total} 筆`;
+  }
 
   rowCount++;
   const topShap    = ev.shap_top3 ? ev.shap_top3[0] : null;
@@ -160,6 +166,7 @@ function handleEvent(ev) {
     </td>
     <td style="font-size:11px;color:var(--muted);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${topShapTxt}</td>
     <td style="font-size:12px">${consistency}</td>
+    <td>${ev.alert_id ? `<a href="/explain/${ev.alert_id}" target="_blank" style="color:var(--accent) font-size:11px">Explain</a>` : "—"}</td>
   `;
   document.getElementById("resultBody").prepend(tr);
 }

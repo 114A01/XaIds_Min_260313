@@ -17,7 +17,7 @@ sse_queue: asyncio.Queue = asyncio.Queue()
 
 analysis_state: dict = {
     "running": False,
-    "file_name": None,
+    "filename": None,
     "total": 0,
     "processed": 0,
     "stop_event": None
@@ -38,7 +38,8 @@ async def process(record):
         if confidence < CONFIDENCE_LOW:
             event = {
                 "zone": "UNCERTAIN",
-                "confidence": f"{confidence:.4f}",
+                "attack_type": label,
+                "confidence": round(confidence, 4),
                 "flow_id": flow_id,
                 "processed": analysis_state["processed"],
                 "total": analysis_state["total"]
@@ -50,13 +51,14 @@ async def process(record):
         alert_id = await insert_alert({
             "flow_id": flow_id,
             "attack_type": label,
-            "confidence": f"{confidence:.4f}",
+            "confidence": round(confidence, 4),
             "conf_zone": conf_zone,
             "status": 'unhandled',
         })  # 將警報資料插入資料庫
         
         # print("\nSHAP 解釋:")
         shap_explanation, base_value = explain_shap(feature.values[0], prediction)
+        print("shap 解釋完畢\t", end=" ")
         await insert_explain_shap(shap_explanation, f"{base_value:.6f}", alert_id)  # 將 SHAP 解釋插入資料庫
 
         event = {
@@ -82,6 +84,8 @@ async def process(record):
                 for name, weight in lime_explanation[:3]
             ]
             event["consistency_score"] = round(comparison_result['consistency_score'], 4)
+            print("lime解釋完畢。\t", end='')
+            print("特徵一致性分數：  ", event["consistency_score"])
 
         await sse_queue.put(event)  # 將事件放入 SSE 佇列
         return event
@@ -91,7 +95,17 @@ async def process(record):
         return
 
 async def run_csv_analysis(file_path, stop_event):
-    df = pd.read_csv(file_path, nrows=REPLAY_LIMIT)
+    try:
+        df = pd.read_csv(file_path, nrows=REPLAY_LIMIT)
+    except Exception as e:
+        analysis_state["running"] = False
+        await sse_queue.put({
+            "zone": "DONE",
+            "processed": 0,
+            "total": 0,
+            "error": str(e)
+        })
+        return
 
     analysis_state["total"] = len(df)
     analysis_state["processed"] = 0
