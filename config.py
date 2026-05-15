@@ -7,7 +7,7 @@ BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "data"
 MODEL_DIR = "./saved_models/"
 
-REPLAY_LIMIT = 100
+REPLAY_LIMIT = 30
 
 CONFIDENCE_LOW  = 0.6    # < 0.6  → UNCERTAIN
 CONFIDENCE_HIGH = 0.85   # ≥ 0.85 → HIGH_CONF，否則 SUSPICIOUS

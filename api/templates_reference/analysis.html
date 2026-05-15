@@ -32,7 +32,11 @@
 </div>
 
 <!-- 統計 -->
-<div class="stats" style="grid-template-columns:repeat(4,1fr)">
+<div class="stats" style="grid-template-columns:repeat(5,1fr)">
+  <div class="card stat-card">
+    <div class="stat-label">BENIGN</div>
+    <div class="stat-num" id="cntBenign" style="color:var(--ok)">0</div>
+  </div>
   <div class="card stat-card">
     <div class="stat-label">UNCERTAIN</div>
     <div class="stat-num" id="cntUncertain" style="color:var(--muted)">0</div>
@@ -75,7 +79,8 @@
 <script>
 let evtSource = null;
 let rowCount  = 0;
-const cnt = { UNCERTAIN: 0, SUSPICIOUS: 0, HIGH_CONF: 0 };
+let pollTimer = null;
+const cnt = { UNCERTAIN: 0, SUSPICIOUS: 0, HIGH_CONF: 0, BENIGN: 0 };
 
 async function loadFiles() {
   const res  = await fetch("/files");
@@ -90,17 +95,20 @@ async function startAnalysis() {
   const filename = document.getElementById("fileSelect").value;
   if (!filename) { alert("請先選擇 CSV 檔案"); return; }
 
+  if (pollTimer) {clearInterval(pollTimer); pollTimer = null;}
   document.getElementById("resultBody").innerHTML = "";
   rowCount = 0;
-  cnt.UNCERTAIN = cnt.SUSPICIOUS = cnt.HIGH_CONF = 0;
+  cnt.UNCERTAIN = cnt.SUSPICIOUS = cnt.HIGH_CONF = cnt.BENIGN = cnt.TOTAL = 0;
   updateCounters();
-  setStatus("RUNNING", "var(--accent)");
-  document.getElementById("progressBar").style.width = "0%";
-  document.getElementById("progressText").textContent = "分析中…";
 
   if (evtSource) evtSource.close();
   evtSource = new EventSource("/stream");
   evtSource.onmessage = e => handleEvent(JSON.parse(e.data));
+  evtSource.onerror = () => {
+    alert("與伺服器的連線發生錯誤，請稍後再試");
+    evtSource.close();
+    setStatus("ERROR", "var(--warn)");
+  };
 
   const res = await fetch("/analysis/start", {
     method: "POST",
@@ -111,11 +119,17 @@ async function startAnalysis() {
     const err = await res.json();
     alert(err.detail || "啟動失敗");
     if (evtSource) evtSource.close();
+  }else{
+    setStatus("RUNNING", "var(--accent)");
+    document.getElementById("progressBar").style.width = "0%";
+    document.getElementById("progressText").textContent = "分析中…";
+    pollTimer = setInterval(pollProgress, 2000);
   }
 }
 
 async function stopAnalysis() {
   await fetch("/analysis/stop", { method: "POST" });
+  if (pollTimer) {clearInterval(pollTimer); pollTimer = null;}
 }
 
 function handleEvent(ev) {
@@ -127,6 +141,7 @@ function handleEvent(ev) {
     document.getElementById("progressText").textContent =
       `完成：共處理 ${ev.processed} / ${ev.total} 筆`;
     if (evtSource) evtSource.close();
+    if (pollTimer) {clearInterval(pollTimer); pollTimer = null;}
     return;
   }
 
@@ -172,11 +187,12 @@ function handleEvent(ev) {
 }
 
 function updateCounters() {
+  document.getElementById("cntBenign").textContent    = cnt.BENIGN;
   document.getElementById("cntUncertain").textContent  = cnt.UNCERTAIN;
   document.getElementById("cntSuspicious").textContent = cnt.SUSPICIOUS;
   document.getElementById("cntHighConf").textContent   = cnt.HIGH_CONF;
   document.getElementById("cntTotal").textContent =
-    cnt.UNCERTAIN + cnt.SUSPICIOUS + cnt.HIGH_CONF;
+    cnt.BENIGN + cnt.UNCERTAIN + cnt.SUSPICIOUS + cnt.HIGH_CONF;
 }
 
 function setStatus(label, color) {

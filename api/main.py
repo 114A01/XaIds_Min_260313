@@ -135,14 +135,18 @@ async def analysis_status():
 async def stream(request: Request):
     async def event_generator():
         yield 'data: {"zone" : "CONNECTED"}\n\n' 
+        offset = 0
         while True:
             if await request.is_disconnected():
                 break
-            try:
-                event = await asyncio.wait_for(pipeline.sse_queue.get(), timeout=15)
-                yield f"data: {json.dumps(event)}\n\n"
-            except:
-                yield 'data: {"zone": "HEARTBEAT"}\n\n'
+            results = pipeline.analysis_state["results"]
+            while offset < len(results):
+                event = results[offset]
+                yield f'data: {json.dumps(event)}\n\n'
+                offset += 1
+                if event.get("zone") == "DONE":
+                    return
+            await asyncio.sleep(0.2)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

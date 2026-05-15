@@ -7,22 +7,32 @@
 '''
 
 
-def compare_shap_lime(shap_exp: list[tuple[str, float]], lime_exp: list[tuple[str, float]], k: int = 10):
+def compare_shap_lime(shap_exp: list[tuple[str, float]], lime_exp: list[tuple[str, float]], k: int = 5):
     # 取出 top-k 特徵
     top_shap = sorted(shap_exp, key=lambda x: abs(x[1]), reverse=True)[:k]
     top_lime = sorted(lime_exp, key=lambda x: abs(x[1]), reverse=True)[:k]
 
     top_shap_feats = {name for name, _ in top_shap}
     top_lime_feats = {desc for desc, _ in top_lime}
-    # 計算一致性指標 (例如: Jaccard Index)
+
     intersection = top_shap_feats.intersection(top_lime_feats)
-    union = len(top_shap_feats.union(top_lime_feats))
     
-    if union == 0:
-        return 0.0  # 避免除以零
-    
-    consistency_score = len(intersection) / union
-    return { "consistency_score": consistency_score,
+    # 特徵一致性指標
+    feature_agreement = len(intersection) / k
+
+    shap_dict = dict(top_shap)
+    lime_dict = dict(top_lime)
+    # 正負一致性指標
+    sign_agreement = sum(1 for feature in intersection 
+                         if (lime_dict[feature] > 0) == (shap_dict[feature] > 0))
+    sign_agreement = sign_agreement / k
+
+    # 排名一致性指標
+    rank_agreement = sum(1 for (feature_shap, _), (feature_lime, _) in zip(top_shap, top_lime) if feature_shap == feature_lime) / k
+
+    return { "feature_agreement": feature_agreement,
+            "sign_agreement": sign_agreement,
+            "rank_agreement": rank_agreement,
             "common_feature" : intersection }
 
 

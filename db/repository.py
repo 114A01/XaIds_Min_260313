@@ -12,7 +12,7 @@ async def init_pool():
         password="allen",
         db="xaids",
         cursorclass = aiomysql.DictCursor,
-        autocommit=False
+        autocommit=True
     )
 
 async def close_pool():

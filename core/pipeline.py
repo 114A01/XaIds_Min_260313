@@ -13,14 +13,13 @@ from core.preprocessor import transform
 from db.repository import insert_flow, init_pool, close_pool, insert_alert, insert_explain_lime, insert_explain_shap, get_packets, get_explanation_lime
 from config import feature_names, class_names, CONFIDENCE_HIGH, CONFIDENCE_LOW, REPLAY_LIMIT
 
-sse_queue: asyncio.Queue = asyncio.Queue()
-
 analysis_state: dict = {
     "running": False,
     "filename": None,
     "total": 0,
     "processed": 0,
-    "stop_event": None
+    "stop_event": None,
+    "results": []
 }
 
 async def process(record):
@@ -44,10 +43,22 @@ async def process(record):
                 "processed": analysis_state["processed"],
                 "total": analysis_state["total"]
             }
-            await sse_queue.put(event)  # 將事件放入 SSE 佇列
+            analysis_state["results"].append(event)
             return event
         
         conf_zone = 'HIGH_CONF' if confidence >= CONFIDENCE_HIGH else 'SUSPICIOUS'
+
+        if class_names[prediction] == 'Benign':
+            event = {
+                "zone": "BENIGN",
+                "attack_type": label,
+                "confidence": round(confidence, 4),
+                "processed": analysis_state["processed"],
+                "total": analysis_state["total"]
+            }
+            analysis_state["results"].append(event)
+            return event
+
         alert_id = await insert_alert({
             "flow_id": flow_id,
             "attack_type": label,
@@ -55,8 +66,7 @@ async def process(record):
             "conf_zone": conf_zone,
             "status": 'unhandled',
         })  # 將警報資料插入資料庫
-        
-        # print("\nSHAP 解釋:")
+
         shap_explanation, base_value = explain_shap(feature.values[0], prediction)
         print("shap 解釋完畢\t", end=" ")
         await insert_explain_shap(shap_explanation, f"{base_value:.6f}", alert_id)  # 將 SHAP 解釋插入資料庫
@@ -83,11 +93,11 @@ async def process(record):
                 {"feature": name, "weight": round(weight, 4)}
                 for name, weight in lime_explanation[:3]
             ]
-            event["consistency_score"] = round(comparison_result['consistency_score'], 4)
+            event["consistency_score"] = round(comparison_result['feature_agreement'], 4)
             print("lime解釋完畢。\t", end='')
             print("特徵一致性分數：  ", event["consistency_score"])
 
-        await sse_queue.put(event)  # 將事件放入 SSE 佇列
+        analysis_state["results"].append(event)
         return event
 
     except Exception as e:
@@ -99,7 +109,7 @@ async def run_csv_analysis(file_path, stop_event):
         df = pd.read_csv(file_path, nrows=REPLAY_LIMIT)
     except Exception as e:
         analysis_state["running"] = False
-        await sse_queue.put({
+        analysis_state["results"].append({
             "zone": "DONE",
             "processed": 0,
             "total": 0,
@@ -109,19 +119,20 @@ async def run_csv_analysis(file_path, stop_event):
 
     analysis_state["total"] = len(df)
     analysis_state["processed"] = 0
+    analysis_state["results"] = []
 
     for idx, row in df.iterrows():
         if stop_event.is_set():
             print("分析已停止")
             break
+        analysis_state["processed"] += 1
         try:
             await process(row.to_dict())
         except Exception as e:
             print(f"Error processing row {idx}: {e}")
-        analysis_state["processed"] += 1
     
     analysis_state["running"] = False
-    await sse_queue.put({
+    analysis_state["results"].append({
         "zone": "DONE",
         "processed": analysis_state["processed"],
         "total": analysis_state["total"]
