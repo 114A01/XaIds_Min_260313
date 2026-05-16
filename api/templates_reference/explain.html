@@ -37,6 +37,32 @@
 
   </div>
 
+  <div id="consistency_card">
+    <div class="section-label">VALIDATION</div>
+    <div id="consistency-content" style="color:var(--muted);font-size:12px;">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;">
+        <div class="card">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">FEATURE AGREEMENT</div>
+          <span style="float: right;">
+            <div id="metric-feature" style="font-size:32px;font-weight:600;color:var(--muted);">—</div>
+          </span>
+        </div> 
+        <div class="card">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">SIGN AGREEMENT</div>
+          <span style="float: right;">
+            <div id="metric-sign" style="font-size:32px;font-weight:600;color:var(--muted);">—</div>
+          </span>
+        </div>
+        <div class="card">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">RANK AGREEMENT</div>
+          <span style="float: right;">
+            <div id="metric-rank" style="font-size:32px;font-weight:600;color:var(--muted);">—</div>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 原始 JSON（收合） -->
   <div class="card">
     <div class="section-label" style="cursor:pointer;user-select:none;" onclick="toggleRaw()">
@@ -112,9 +138,10 @@
     const errorMsg = document.getElementById('error-msg');
 
     try {
-      const [shapRes, limeRes] = await Promise.allSettled([
+      const [shapRes, limeRes, consistentRes] = await Promise.allSettled([
         fetch(`/explain/${id}/shap`).then(r => r.json()),
         fetch(`/explain/${id}/lime`).then(r => r.json()),
+        fetch(`/explain/${id}/consistent`).then(r => r.json()),
       ]);
 
       loading.style.display = 'none';
@@ -146,6 +173,20 @@
         }
       } else {
         document.getElementById('lime-unavailable').style.display = 'block';
+      }
+
+      // 一致性比較
+      if (consistentRes.status === 'fulfilled') {
+        const c = consistentRes.value;
+        const metricColor = v => v >= 0.7 ? 'var(--ok)' : v >= 0.4 ? '#f0a500' : 'var(--danger)';
+        ['feature', 'sign', 'rank'].forEach(key => {
+          const val = c[`${key}_agreement`];
+          const el = document.getElementById(`metric-${key}`);
+          if (el && val != null) {
+            el.textContent = (val * 100).toFixed(0) + '%';
+            el.style.color = metricColor(val);
+          }
+        });
       }
 
       content.style.display = 'block';

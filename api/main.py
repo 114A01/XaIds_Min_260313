@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from db.repository import init_pool, close_pool, get_packets, get_explanation_lime, get_explanation_shap, get_flows, get_alerts, get_flow_count, get_alert_count
+from db.repository import init_pool, close_pool, get_packets, get_explanation_lime, get_explanation_shap, get_flows, get_alerts, get_flow_count, get_alert_count, get_comparison_result
 from contextlib import asynccontextmanager
 from core import pipeline
 from config import DATA_DIR
@@ -42,6 +42,10 @@ async def warning(request: Request):
         "packets": packets,
     })
 
+@app.get("/api/packetRecord")
+async def api_packet_record():
+    return await get_flows()
+
 @app.get("/alertRecord")                                    # 警報紀錄頁面，展示觸發警報的封包以及相關資訊
 async def alert(request: Request):
     # print("Hello World")
@@ -49,6 +53,10 @@ async def alert(request: Request):
     return templates.TemplateResponse(request, "alerts.html", {
         "alerts": alerts,
     })
+
+@app.get("/api/alertRecord")
+async def api_alert_record():
+    return await get_alerts()
 
 # @app.get("/packetRecord/packetList")                        # 回傳擷取到的封包列表，供IDS紀錄頁面顯示
 # async def packetList():
@@ -74,7 +82,7 @@ async def explain_shap(id: str):
 
 @app.get("/explain/{id}/consistent")                        # 回傳指定封包的一致性解釋，供解釋頁面顯示
 async def explain_consistent(id: str):
-    return {"message" : "This is a consistent explanation message"}
+    return await get_comparison_result(id)
 
 @app.get("/analysis")
 async def analysis_page(request: Request):                                   # 分析頁面，展示可供分析的檔案列表，並提供選擇後開始分析的功能

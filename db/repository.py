@@ -121,10 +121,17 @@ async def get_alert_count():
             return row["total"]
 
 
-# async def insert_comparison_result(comparison_result, alert_id):
-#     async with pool.acquire() as conn:
-#         async with conn.cursor() as cursor:
-#             sql = "INSERT INTO comparisonResult (alert_id, consistency_score, common_features) VALUES (%s, %s, %s)"
-#             values = (alert_id, comparison_result.get('consistency_score'), json.dumps(comparison_result.get('common_features')))
-#             await cursor.execute(sql, values)
-#             await conn.commit()
+async def insert_comparison_result(comparison_result, alert_id):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cursor:
+            sql = "INSERT INTO validation (alert_id, feature_agreement, sign_agreement, rank_agreement) VALUES (%s, %s, %s, %s)"
+            values = (alert_id, comparison_result['feature_agreement'], comparison_result['sign_agreement'], comparison_result['rank_agreement'])
+            await cursor.execute(sql, values)
+            await conn.commit()
+
+async def get_comparison_result(alert_id):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT * FROM validation WHERE alert_id = %s", (alert_id,))
+            result = await cursor.fetchone()
+            return result if result else {"feature_agreement": None, "sign_agreement": None, "rank_agreement": None}

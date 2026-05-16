@@ -10,7 +10,7 @@ from core.consistency import compare_shap_lime
 from core.modelPredict import predict, predict_prob
 from stream.catcher import Start
 from core.preprocessor import transform
-from db.repository import insert_flow, init_pool, close_pool, insert_alert, insert_explain_lime, insert_explain_shap, get_packets, get_explanation_lime
+from db.repository import insert_flow, init_pool, close_pool, insert_alert, insert_explain_lime, insert_explain_shap, get_packets, get_explanation_lime, insert_comparison_result
 from config import feature_names, class_names, CONFIDENCE_HIGH, CONFIDENCE_LOW, REPLAY_LIMIT
 
 analysis_state: dict = {
@@ -88,6 +88,8 @@ async def process(record):
             lime_explanation = explain_lime(feature.values[0])
             await insert_explain_lime(lime_explanation, alert_id)  # 將 LIME 解釋插入資料庫
             comparison_result = compare_shap_lime(shap_explanation, lime_explanation)
+
+            await insert_comparison_result(comparison_result, alert_id)  # 將一致性比較結果插入資料庫
 
             event["lime_top3"] = [
                 {"feature": name, "weight": round(weight, 4)}
