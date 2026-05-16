@@ -12,6 +12,14 @@ from stream.catcher import Start
 from core.preprocessor import transform
 from db.repository import insert_flow, init_pool, close_pool, insert_alert, insert_explain_lime, insert_explain_shap, get_packets, get_explanation_lime, insert_comparison_result
 from config import feature_names, class_names, CONFIDENCE_HIGH, CONFIDENCE_LOW, REPLAY_LIMIT
+from stream.catcher import Stop as stop_catcher
+
+MAX_LIVE_RESULTS = 500
+
+live_capture_state: dict = {
+    "running": False,
+    "task": None
+}
 
 analysis_state: dict = {
     "running": False,
@@ -21,6 +29,12 @@ analysis_state: dict = {
     "stop_event": None,
     "results": []
 }
+
+def _append_result(event: dict):
+    results = analysis_state["results"]
+    results.append(event)
+    if len(results) > MAX_LIVE_RESULTS:
+        results.pop(0)
 
 async def process(record):
     try:
@@ -43,7 +57,7 @@ async def process(record):
                 "processed": analysis_state["processed"],
                 "total": analysis_state["total"]
             }
-            analysis_state["results"].append(event)
+            _append_result(event)
             return event
         
         conf_zone = 'HIGH_CONF' if confidence >= CONFIDENCE_HIGH else 'SUSPICIOUS'
@@ -56,7 +70,7 @@ async def process(record):
                 "processed": analysis_state["processed"],
                 "total": analysis_state["total"]
             }
-            analysis_state["results"].append(event)
+            _append_result(event)
             return event
 
         alert_id = await insert_alert({
@@ -99,7 +113,7 @@ async def process(record):
             print("lime解釋完畢。\t", end='')
             print("特徵一致性分數：  ", event["consistency_score"])
 
-        analysis_state["results"].append(event)
+        _append_result(event)
         return event
 
     except Exception as e:
@@ -161,3 +175,34 @@ async def launch_pipeline():
         pass
     finally:
         await close_pool()  # 關閉資料庫連接池
+
+async def start_live_capture():
+    if analysis_state["running"]:
+        return False, "檔案分析正在進行中，請先停止。"
+    if live_capture_state["running"]:
+        return False, "即時流量分析已在執行中。"
+    
+    analysis_state["results"] = []
+
+    queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
+
+    Start(loop, queue)
+
+    task = asyncio.create_task(pipeline_queue(queue))
+    live_capture_state["running"] = True
+    live_capture_state["task"] = task
+
+    return True, "Started"
+
+async def stop_live_capture():
+    if not live_capture_state['running']:
+        return False
+    task = live_capture_state["task"]
+    if task:
+        task.cancel()
+    
+    stop_catcher()
+    live_capture_state["running"] = False
+    live_capture_state["task"] = None
+    return True

@@ -139,19 +139,41 @@ async def analysis_status():
         "processed":state["processed"]
     }
 
+@app.post("/capture/start")
+async def capture_start():
+    ok, msg = await pipeline.start_live_capture()
+    if not ok:
+        raise HTTPException(status_code=409, detail=msg)
+    return {"status": "started"}
+
+@app.post("/capture/stop")
+async def capture_stop():
+    stopped = await pipeline.stop_live_capture()
+    if not stopped:
+        return {"status": "no capture running"}
+    return {"status": "stopped"}
+
+@app.get("/capture/status")
+async def capture_status():
+    return {"running": pipeline.live_capture_state["running"]}
+
+@app.get("/analysis/results")
+async def get_analysis_results():
+    return pipeline.analysis_state["results"]
+
 @app.get("/stream")
-async def stream(request: Request):
+async def stream(request: Request, offset: int = 0):
     async def event_generator():
         yield 'data: {"zone" : "CONNECTED"}\n\n' 
-        offset = 0
+        current_offset = offset
         while True:
             if await request.is_disconnected():
                 break
             results = pipeline.analysis_state["results"]
-            while offset < len(results):
-                event = results[offset]
+            while current_offset < len(results):
+                event = results[current_offset]
                 yield f'data: {json.dumps(event)}\n\n'
-                offset += 1
+                current_offset += 1
                 if event.get("zone") == "DONE":
                     return
             await asyncio.sleep(0.2)

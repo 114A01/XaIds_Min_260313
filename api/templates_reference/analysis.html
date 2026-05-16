@@ -2,6 +2,23 @@
 {% block title %}CSV 分析 — XaIDS{% endblock %}
 {% block content %}
 
+<h1>// TRAFFIC MONITOR</h1>
+
+<!-- 即時擷取控制 -->
+<div class="card">
+  <div class="section-label">LIVE CAPTURE</div>
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <span id="captureBadge" class="badge badge-UNCERTAIN">IDLE</span>
+    <button class="btn btn-primary" onclick="startCapture()">⬤ 開始即時擷取</button>
+    <button class="btn" onclick="stopCapture()">■ 停止擷取</button>
+  </div>
+</div>
+
+<!-- 分隔線 -->
+<div style="border-top:1px solid var(--border);margin:8px 0;padding-top:4px">
+  <div class="section-label" style="margin-bottom:8px">CSV ANALYSIS</div>
+</div>
+
 <h1>// CSV ANALYSIS</h1>
 
 <!-- 檔案選擇 -->
@@ -80,6 +97,7 @@
 let evtSource = null;
 let rowCount  = 0;
 let pollTimer = null;
+let captureMode = null;   // 'csv' | 'live'
 const cnt = { UNCERTAIN: 0, SUSPICIOUS: 0, HIGH_CONF: 0, BENIGN: 0 };
 
 async function loadFiles() {
@@ -92,6 +110,7 @@ async function loadFiles() {
 }
 
 async function startAnalysis() {
+  captureMode = 'csv'
   const filename = document.getElementById("fileSelect").value;
   if (!filename) { alert("請先選擇 CSV 檔案"); return; }
 
@@ -101,14 +120,7 @@ async function startAnalysis() {
   cnt.UNCERTAIN = cnt.SUSPICIOUS = cnt.HIGH_CONF = cnt.BENIGN = cnt.TOTAL = 0;
   updateCounters();
 
-  if (evtSource) evtSource.close();
-  evtSource = new EventSource("/stream");
-  evtSource.onmessage = e => handleEvent(JSON.parse(e.data));
-  evtSource.onerror = () => {
-    alert("與伺服器的連線發生錯誤，請稍後再試");
-    evtSource.close();
-    setStatus("ERROR", "var(--warn)");
-  };
+  connectSSE(0);
 
   const res = await fetch("/analysis/start", {
     method: "POST",
@@ -132,16 +144,60 @@ async function stopAnalysis() {
   if (pollTimer) {clearInterval(pollTimer); pollTimer = null;}
 }
 
+async function startCapture() {
+  captureMode = 'live';
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  document.getElementById("resultBody").innerHTML = "";
+  rowCount = 0;
+  cnt.UNCERTAIN = cnt.SUSPICIOUS = cnt.HIGH_CONF = cnt.BENIGN = 0;
+  updateCounters();
+
+  connectSSE(0);
+
+  const res = await fetch("/capture/start", { method: "POST" });
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err.detail || "啟動失敗");
+    evtSource.close();
+    captureMode = null;
+    setCaptureStatus("ERROR");
+  } else {
+    setCaptureStatus("RUNNING");
+    document.getElementById("progressText").textContent = "即時擷取中…";
+    document.getElementById("progressBar").style.width = "0%";
+  }
+}
+
+async function stopCapture() {
+  await fetch("/capture/stop", { method: "POST" });
+  if (evtSource) { evtSource.close(); evtSource = null; }
+  setCaptureStatus("STOPPED");
+  document.getElementById("progressText").textContent = "擷取已停止";
+  captureMode = null;
+}
+
+function setCaptureStatus(label) {
+  const badge = document.getElementById("captureBadge");
+  const colors = { RUNNING: "var(--accent)", STOPPED: "var(--muted)", ERROR: "var(--warn)", IDLE: "var(--muted)" };
+  badge.textContent = label;
+  badge.style.color = colors[label] || "var(--muted)";
+  badge.style.border = `1px solid ${colors[label] || "var(--muted)"}`;
+  badge.style.background = "transparent";
+}
+
 function handleEvent(ev) {
   if (ev.zone === "CONNECTED" || ev.zone === "HEARTBEAT") return;
 
   if (ev.zone === "DONE") {
-    setStatus("DONE", "var(--ok)");
-    document.getElementById("progressBar").style.width = "100%";
-    document.getElementById("progressText").textContent =
-      `完成：共處理 ${ev.processed} / ${ev.total} 筆`;
-    if (evtSource) evtSource.close();
-    if (pollTimer) {clearInterval(pollTimer); pollTimer = null;}
+    if (captureMode !== 'live') {
+      setStatus("DONE", "var(--ok)");
+      document.getElementById("progressBar").style.width = "100%";
+      document.getElementById("progressText").textContent =
+        `完成：共處理 ${ev.processed} / ${ev.total} 筆`;
+      if (evtSource) evtSource.close();
+      if (pollTimer) {clearInterval(pollTimer); pollTimer = null;}
+      captureMode = null;
+    }
     return;
   }
 
@@ -214,7 +270,54 @@ async function pollProgress() {
   }
 }
 
-loadFiles();
+async function initPage() {
+    await loadFiles();
+
+    // 取回既有結果並渲染
+    const existingResults = await fetch("/analysis/results").then(r => r.json());
+    existingResults
+        .filter(ev => ev.zone !== 'CONNECTED' && ev.zone !== 'DONE')
+        .forEach(ev => handleEvent(ev));
+
+    const offset = existingResults.length;
+
+    // 確認是否有任務仍在執行
+    const [csvStatus, capStatus] = await Promise.all([
+        fetch("/analysis/status").then(r => r.json()),
+        fetch("/capture/status").then(r => r.json()),
+    ]);
+
+    if (csvStatus.running) {
+        captureMode = 'csv';
+        setStatus("RUNNING", "var(--accent)");
+        connectSSE(offset);
+        pollTimer = setInterval(pollProgress, 2000);
+    } else if (capStatus.running) {
+        captureMode = 'live';
+        setCaptureStatus("RUNNING");
+        connectSSE(offset);
+    } else if (existingResults.length > 0) {
+        // 顯示上次執行的最終狀態
+        const last = existingResults[existingResults.length - 1];
+        if (last.zone === 'DONE') {
+            setStatus("DONE", "var(--ok)");
+            document.getElementById("progressText").textContent =
+                `完成：共處理 ${last.processed} / ${last.total} 筆`;
+        }
+    }
+}
+
+function connectSSE(offset = 0) {
+    if (evtSource) evtSource.close();
+    evtSource = new EventSource(`/stream?offset=${offset}`);
+    evtSource.onmessage = e => handleEvent(JSON.parse(e.data));
+    evtSource.onerror = () => {
+        evtSource.close();
+        setStatus("ERROR", "var(--warn)");
+    };
+}
+
+initPage();
 </script>
 
 {% endblock %}
