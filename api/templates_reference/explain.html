@@ -38,23 +38,23 @@
   </div>
 
   <div id="consistency_card">
-    <div class="section-label">VALIDATION</div>
+    <div class="section-label">VALIDATION (Top-5)</div>
     <div id="consistency-content" style="color:var(--muted);font-size:12px;">
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;">
         <div class="card">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">FEATURE AGREEMENT</div>
+          <div style="font-size:15px;color:var(--muted);margin-bottom:4px;">FEATURE AGREEMENT</div>
           <span style="float: right;">
             <div id="metric-feature" style="font-size:32px;font-weight:600;color:var(--muted);">—</div>
           </span>
         </div> 
         <div class="card">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">SIGN AGREEMENT</div>
+          <div style="font-size:15px;color:var(--muted);margin-bottom:4px;">SIGN AGREEMENT</div>
           <span style="float: right;">
             <div id="metric-sign" style="font-size:32px;font-weight:600;color:var(--muted);">—</div>
           </span>
         </div>
         <div class="card">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">RANK AGREEMENT</div>
+          <div style="font-size:15px;color:var(--muted);margin-bottom:4px;">RANK AGREEMENT</div>
           <span style="float: right;">
             <div id="metric-rank" style="font-size:32px;font-weight:600;color:var(--muted);">—</div>
           </span>
@@ -150,9 +150,8 @@
       if (shapRes.status === 'fulfilled') {
         const shap = shapRes.value;
         renderBadge('shap-prediction-badge', shap.prediction);
-        const feats = Array.isArray(shap.features) ? shap.features
-                    : Object.entries(shap.features || {});
-        renderFeatures('shap-features', feats);
+        const shapItems = JSON.parse(shap.shap_value || '[]').map(d => [d.feature, d.weight]);
+        renderFeatures('shap-features', shapItems);
         document.getElementById('shap-raw').textContent = JSON.stringify(shap, null, 2);
       } else {
         document.getElementById('shap-features').innerHTML =
@@ -162,11 +161,10 @@
       // LIME
       if (limeRes.status === 'fulfilled') {
         const lime = limeRes.value;
-        if (lime && !lime.unavailable) {
+        if (lime && lime.lime_value) {
           renderBadge('lime-prediction-badge', lime.prediction);
-          const feats = Array.isArray(lime.features) ? lime.features
-                      : Object.entries(lime.features || {});
-          renderFeatures('lime-features', feats);
+          const limeItems = JSON.parse(lime.lime_value || '[]').map(d => [d.feature, d.weight]);
+          renderFeatures('lime-features', limeItems);
           document.getElementById('lime-raw').textContent = JSON.stringify(lime, null, 2);
         } else {
           document.getElementById('lime-unavailable').style.display = 'block';

@@ -69,6 +69,8 @@ async def insert_flow(record, feature):
                 computed_features = {str(i): v for i, v in enumerate(feature)}  # 如果不是 DataFrame，直接轉換為列表
 
             sql = "INSERT INTO flow (id, source_ip, destination_ip, source_port, destination_port, protocol, start_time, computed_features) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+            if record.get('start_time') is None:
+                record['start_time'] = datetime.datetime.now()
             values = (flow_id, record.get('source_ip'), record.get('destination_ip'), record.get('source_port'), record.get('destination_port'), record.get('protocol'), record.get('start_time'), json.dumps(computed_features))
             await cursor.execute(sql, values)
             await conn.commit()
