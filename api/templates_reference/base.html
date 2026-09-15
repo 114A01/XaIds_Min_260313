@@ -20,6 +20,18 @@
       --font:     'Courier New', 'Lucida Console', monospace;
     }
 
+    [data-theme="light"] {
+      --bg:      #f5f7fa;
+      --surface: #ffffff;
+      --border:  #d1d5de;
+      --accent:  #2563eb;
+      --danger:  #dc2626;
+      --warn:    #d97706;
+      --ok:      #16a34a;
+      --text:    #1e2030;
+      --muted:   #6b7280;
+    }
+
     body {
       font-family: var(--font);
       background: var(--bg);
@@ -99,9 +111,9 @@
       font-size: 11px; letter-spacing: 0.1em; color: var(--muted);
       border-bottom: 1px solid var(--border);
     }
-    td { padding: 10px 12px; border-bottom: 1px solid rgba(42,45,58,.6); }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background: rgba(255,255,255,.02); }
+    tr:hover td { background: rgba(128,128,128,.07); }
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
 
@@ -151,9 +163,35 @@
     <a href="/packetRecord" {% if request.url.path.startswith("/packetRecord") %}class="active"{% endif %}>封包紀錄</a>
     <a href="/alertRecord" {% if request.url.path.startswith("/alertRecord") %}class="active"{% endif %}>警報紀錄</a>
     <a href="/analysis" {% if request.url.path.startswith("/analysis") %}class="active"{% endif %}>CSV 分析</a>
+    <button id="theme-toggle" class="btn" style="margin-left:auto; padding:4px 10px; font-size:13px;">☀</button>
   </nav>
   <div class="container">
     {% block content %}{% endblock %}
   </div>
+  <script>
+    (function() {
+      const html = document.documentElement;
+      const btn = document.getElementById('theme-toggle');
+      const saved = localStorage.getItem('xaids-theme') || 'dark';
+
+      function applyTheme(theme) {
+        if (theme === 'light') {
+          html.setAttribute('data-theme', 'light');
+          btn.textContent = '☾';
+        } else {
+          html.removeAttribute('data-theme');
+          btn.textContent = '☀';
+        }
+        localStorage.setItem('xaids-theme', theme);
+      }
+
+      applyTheme(saved);
+
+      btn.addEventListener('click', function() {
+        const current = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+        applyTheme(current);
+      });
+    })();
+  </script>
 </body>
 </html>

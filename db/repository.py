@@ -68,10 +68,11 @@ async def insert_flow(record, feature):
             else:
                 computed_features = {str(i): v for i, v in enumerate(feature)}  # 如果不是 DataFrame，直接轉換為列表
 
-            sql = "INSERT INTO flow (id, source_ip, destination_ip, source_port, destination_port, protocol, start_time, computed_features) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+            sql = "INSERT INTO flow (id, source_ip, destination_ip, source_port, destination_port, protocol, start_time, end_time, duration_ms, packet_count, byte_count, computed_features) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
             if record.get('start_time') is None:
                 record['start_time'] = datetime.datetime.now()
-            values = (flow_id, record.get('source_ip'), record.get('destination_ip'), record.get('source_port'), record.get('destination_port'), record.get('protocol'), record.get('start_time'), json.dumps(computed_features))
+            # end_time 之後的欄位只有即時擷取的 record 才有（stream/catcher.py），CSV 分析時為 NULL
+            values = (flow_id, record.get('source_ip'), record.get('destination_ip'), record.get('source_port'), record.get('destination_port'), record.get('protocol'), record.get('start_time'), record.get('end_time'), record.get('duration_ms'), record.get('packet_count'), record.get('byte_count'), json.dumps(computed_features))
             await cursor.execute(sql, values)
             await conn.commit()
             return flow_id

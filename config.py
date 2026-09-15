@@ -7,10 +7,10 @@ BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "data"
 MODEL_DIR = "./saved_models/"
 
-REPLAY_LIMIT = 30
+REPLAY_LIMIT = None
 
 # Network capture settings
-CAPTURE_IFACE = "lo"        # network interface to sniff on
+CAPTURE_IFACE = "eth0"        # network interface to sniff on
 CAPTURE_FILTER = ""
 
 CONFIDENCE_LOW  = 0.6    # < 0.6  → UNCERTAIN
