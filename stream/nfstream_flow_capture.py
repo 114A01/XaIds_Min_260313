@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-擷取測試工具：用 stream/catcher.py 的函數擷取流量，輸出 CSV 並與資料集比對。
+擷取測試工具：用 stream/catcher.py 的函數擷取流量，輸出 CSV 並與訓練資料比對。
 
-特徵計算方式與欄位對照說明見 stream/catcher.py。
+特徵定義見 stream/flow_features.py 與 document/nfstream_features.md。
 
 用法：
-  python stream/nfstream_flow_capture.py -s some.pcap --verify 'data/*.csv'
-  sudo python stream/nfstream_flow_capture.py -s eth0 -f 'port 80' -n 100 -o out.csv
+  python stream/nfstream_flow_capture.py -s some.pcap --verify 'output/dataset/*.csv'
+  python stream/nfstream_flow_capture.py -s eth0 -f 'port 80' -n 100 -o out.csv
 """
 
 import argparse
@@ -15,39 +15,41 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from stream.catcher import (CICIOT2023_COLUMNS, DEFAULT_ACTIVE_TIMEOUT,  # noqa: E402
-                            DEFAULT_IDLE_TIMEOUT, META_COLUMNS, iter_flows)
+from stream.catcher import (ACTIVE_TIMEOUT, IDLE_TIMEOUT,  # noqa: E402
+                            META_COLUMNS, iter_flows)
+from stream.flow_features import FEATURES  # noqa: E402
+
+# 比對時每個訓練 CSV 最多讀幾列（訓練 CSV 可能有上千萬列）
+VERIFY_ROWS_PER_FILE = 200_000
 
 
 def main():
     ap = argparse.ArgumentParser(
-        description="用 NFStream 擷取流量並組成 CICIoT2023 的 46 個特徵")
+        description="用 NFStream 擷取流量並組成模型特徵")
     ap.add_argument("-s", "--source", default="eth0",
                     help="網卡名稱或 pcap 檔路徑（預設 eth0；用 pcap 可免 root 離線測試）")
     ap.add_argument("-f", "--bpf", default=None, help="BPF 過濾條件，例如 'tcp port 80'")
     ap.add_argument("-o", "--out", default=None, help="輸出 CSV 路徑")
     ap.add_argument("-n", "--limit", type=int, default=None, help="擷取到幾條 flow 後停止")
-    ap.add_argument("--idle-timeout", type=int, default=DEFAULT_IDLE_TIMEOUT)
-    ap.add_argument("--active-timeout", type=int, default=DEFAULT_ACTIVE_TIMEOUT)
     ap.add_argument("--verify", metavar="GLOB", default=None,
-                    help="與資料集比對欄位與數值範圍，例如 'data/*.csv'")
+                    help="與訓練資料比對欄位與數值範圍，例如 'output/dataset/*.csv'")
     args = ap.parse_args()
 
-    print(f"來源: {args.source}    BPF: {args.bpf or '(無)'}")
+    print(f"來源: {args.source}    BPF: {args.bpf or '(無)'}    "
+          f"idle {IDLE_TIMEOUT} 秒 / active {ACTIVE_TIMEOUT} 秒")
     print("=" * 96)
     print(f"{'源IP':<16}{'源Port':<8}{'目標IP':<16}{'目標Port':<9}"
-          f"{'協議':<7}{'Packets':<9}{'Bytes':<9}{'TTL':<7}{'HdrLen'}")
+          f"{'協議':<7}{'Packets':<9}{'Bytes':<10}{'Duration(ms)'}")
     print("=" * 96)
 
     rows = []
     try:
-        for rec in iter_flows(args.source, args.bpf, args.idle_timeout,
-                              args.active_timeout, args.limit):
+        for rec in iter_flows(args.source, args.bpf, args.limit):
             rows.append(rec)
             print(f"{rec['source_ip']:<16}{rec['source_port']:<8}"
                   f"{rec['destination_ip']:<16}{rec['destination_port']:<9}"
-                  f"{rec['protocol']:<7}{rec['packet_count']:<9}{rec['byte_count']:<9}"
-                  f"{rec['Duration']:<7.1f}{rec['Header_Length']:.1f}")
+                  f"{rec['protocol_name']:<7}{rec['packet_count']:<9}{rec['byte_count']:<10}"
+                  f"{rec['duration_ms']}")
     except KeyboardInterrupt:
         print("\n(收到 Ctrl+C，停止擷取)")
     except (PermissionError, ValueError) as e:
@@ -62,20 +64,20 @@ def main():
         return 0
 
     import pandas as pd
-    df = pd.DataFrame(rows, columns=META_COLUMNS + CICIOT2023_COLUMNS)
+    df = pd.DataFrame(rows, columns=META_COLUMNS + FEATURES)
 
     if args.out:
         df.to_csv(args.out, index=False)
         print(f"已寫出 {args.out}")
 
     if args.verify:
-        verify_against_dataset(df[CICIOT2023_COLUMNS], args.verify)
+        verify_against_dataset(df[FEATURES], args.verify)
 
     return 0
 
 
 def verify_against_dataset(df, pattern):
-    """比對產出的欄位與資料集：名稱、順序、數值範圍。"""
+    """比對產出的欄位與訓練資料：名稱、順序、數值範圍。"""
     import glob
     import pandas as pd
 
@@ -83,11 +85,11 @@ def verify_against_dataset(df, pattern):
     if not files:
         print(f"找不到資料集檔案: {pattern}", file=sys.stderr)
         return
-    ds = pd.concat([pd.read_csv(f) for f in files[:3]])
+    ds = pd.concat([pd.read_csv(f, nrows=VERIFY_ROWS_PER_FILE) for f in files])
     ds_cols = [c for c in ds.columns if c != "label"]
 
     print("\n" + "=" * 96)
-    print("欄位比對")
+    print(f"欄位比對（每個檔案取前 {VERIFY_ROWS_PER_FILE:,} 列，共 {len(files)} 個檔案）")
     print("=" * 96)
     missing = [c for c in ds_cols if c not in df.columns]
     extra = [c for c in df.columns if c not in ds_cols]
@@ -98,7 +100,7 @@ def verify_against_dataset(df, pattern):
     print(f"順序一致: {'是' if order_ok else '否'}")
 
     print("\n" + "=" * 96)
-    print(f"{'欄位':<18}{'資料集 min':>13}{'中位數':>13}{'max':>13}"
+    print(f"{'欄位':<28}{'資料集 min':>13}{'中位數':>13}{'max':>13}"
           f"{'  │':>3}{'擷取 min':>13}{'中位數':>13}{'max':>13}  判定")
     print("=" * 96)
     for c in ds_cols:
@@ -108,7 +110,7 @@ def verify_against_dataset(df, pattern):
         # 判定：擷取值是否落在資料集的值域內
         inside = ((m >= d.min()) & (m <= d.max())).mean()
         mark = "OK" if inside == 1.0 else (f"部分越界 {inside:.0%}" if inside > 0 else "全部越界")
-        print(f"{c:<18}{d.min():>13.4g}{d.median():>13.4g}{d.max():>13.4g}"
+        print(f"{c:<28}{d.min():>13.4g}{d.median():>13.4g}{d.max():>13.4g}"
               f"{'  │':>3}{m.min():>13.4g}{m.median():>13.4g}{m.max():>13.4g}  {mark}")
 
 

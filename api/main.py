@@ -8,13 +8,12 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from db.repository import init_pool, close_pool, get_packets, get_explanation_lime, get_explanation_shap, get_flows, get_alerts, get_flow_count, get_alert_count, get_comparison_result
 from contextlib import asynccontextmanager
 from core import pipeline
 from config import DATA_DIR, CAPTURE_IFACE, CAPTURE_FILTER
-from stream.catcher import DEFAULT_IDLE_TIMEOUT, DEFAULT_ACTIVE_TIMEOUT
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -146,8 +145,7 @@ async def analysis_status():
 class CaptureStartRequest(BaseModel):
     interface: Optional[str] = None                                      # 不填使用 config.CAPTURE_IFACE
     bpf_filter: Optional[str] = None                                     # 不填使用 config.CAPTURE_FILTER，空字串表示不過濾
-    idle_timeout: int = Field(DEFAULT_IDLE_TIMEOUT, ge=1, le=3600)       # 秒，flow 閒置多久視為結束
-    active_timeout: int = Field(DEFAULT_ACTIVE_TIMEOUT, ge=1, le=86400)  # 秒，長連線每隔多久切出一條 flow
+    # timeout 不開放調整：必須和訓練資料相同，固定使用 stream/flow_features.py 的 NFSTREAM_PARAMS
 
 def _list_interfaces():
     return sorted(name for _, name in socket.if_nameindex())
@@ -172,7 +170,7 @@ async def capture_start(body: Optional[CaptureStartRequest] = None):
     if interface not in _list_interfaces():
         raise HTTPException(status_code=400, detail=f"網卡不存在：{interface}")
 
-    ok, msg = await pipeline.start_live_capture(interface, body.bpf_filter, body.idle_timeout, body.active_timeout)
+    ok, msg = await pipeline.start_live_capture(interface, body.bpf_filter)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)    # 例如 BPF 語法錯誤、沒有擷取權限
     return {"status": "started", **pipeline.get_live_capture_status()}

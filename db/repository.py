@@ -72,7 +72,11 @@ async def insert_flow(record, feature):
             if record.get('start_time') is None:
                 record['start_time'] = datetime.datetime.now()
             # end_time 之後的欄位只有即時擷取的 record 才有（stream/catcher.py），CSV 分析時為 NULL
-            values = (flow_id, record.get('source_ip'), record.get('destination_ip'), record.get('source_port'), record.get('destination_port'), record.get('protocol'), record.get('start_time'), record.get('end_time'), record.get('duration_ms'), record.get('packet_count'), record.get('byte_count'), json.dumps(computed_features))
+            # 即時擷取的 record 中，protocol 是特徵（協定號碼），協定名稱在 protocol_name
+            protocol = record.get('protocol_name', record.get('protocol'))
+            if protocol is not None:
+                protocol = str(protocol)
+            values = (flow_id, record.get('source_ip'), record.get('destination_ip'), record.get('source_port'), record.get('destination_port'), protocol, record.get('start_time'), record.get('end_time'), record.get('duration_ms'), record.get('packet_count'), record.get('byte_count'), json.dumps(computed_features))
             await cursor.execute(sql, values)
             await conn.commit()
             return flow_id

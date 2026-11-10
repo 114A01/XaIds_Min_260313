@@ -8,7 +8,7 @@ import traceback
 from core.explainer import explain_lime, explain_shap
 from core.consistency import compare_shap_lime
 from core.modelPredict import predict, predict_prob
-from stream.catcher import Start, start_capture, stop_capture, get_capture_status, DEFAULT_IDLE_TIMEOUT, DEFAULT_ACTIVE_TIMEOUT
+from stream.catcher import Start, start_capture, stop_capture, get_capture_status
 from core.preprocessor import transform
 from db.repository import insert_flow, init_pool, close_pool, insert_alert, insert_explain_lime, insert_explain_shap, get_packets, get_explanation_lime, insert_comparison_result
 from config import feature_names, class_names, CONFIDENCE_HIGH, CONFIDENCE_LOW, REPLAY_LIMIT
@@ -175,9 +175,9 @@ async def launch_pipeline():
     finally:
         await close_pool()  # 關閉資料庫連接池
 
-async def start_live_capture(interface=None, bpf_filter=None,
-                             idle_timeout=DEFAULT_IDLE_TIMEOUT, active_timeout=DEFAULT_ACTIVE_TIMEOUT):
+async def start_live_capture(interface=None, bpf_filter=None):
     # interface / bpf_filter 為 None 時使用 config 的 CAPTURE_IFACE / CAPTURE_FILTER，bpf_filter 空字串表示不過濾
+    # timeout 固定使用 stream/flow_features.py 的 NFSTREAM_PARAMS，和訓練資料一致
     if analysis_state["running"]:
         return False, "檔案分析正在進行中，請先停止。"
     if live_capture_state["running"]:
@@ -186,7 +186,7 @@ async def start_live_capture(interface=None, bpf_filter=None,
     queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
 
-    ok, msg = start_capture(loop, queue, interface, bpf_filter, idle_timeout, active_timeout)
+    ok, msg = start_capture(loop, queue, interface, bpf_filter)
     if not ok:
         return False, msg
 
