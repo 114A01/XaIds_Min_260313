@@ -1,202 +1,115 @@
 {% extends "base.html" %}
-{% block title %}XAI #{{ id }} — XaIDS Dashboard{% endblock %}
+{% block title %}解釋 — XaIDS{% endblock %}
 {% block content %}
 
-<h1>// XAI EXPLANATION — ALERT #{{ id }}</h1>
+<h1>// XAI EXPLANATION — FLOW <span id="flowShort" style="color:var(--text)"></span></h1>
 
-<!-- 載入狀態 -->
-<div id="loading" class="card" style="color:var(--muted);text-align:center;padding:2rem;">
-  正在載入解釋資料...
-</div>
+<div id="loading" class="card muted" style="text-align:center;padding:2rem">正在載入解釋資料...</div>
+<div id="xai-error" class="card" style="display:none;color:var(--danger)"></div>
 
-<!-- 主內容（載入後顯示） -->
-<div id="xai-content" style="display:none;">
+<div id="xai-content" style="display:none">
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+  <div class="card">
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;font-size:12px">
+      <div><div class="muted">測試</div><a id="iRun" href="#"></a></div>
+      <div><div class="muted">真實標籤</div><span id="iTrue"></span></div>
+      <div><div class="muted">預測</div><span id="iPred"></span> <span id="iCorrect"></span></div>
+      <div><div class="muted">信心值</div><span id="iConf"></span></div>
+      <div><div class="muted">ZONE</div><span id="iZone"></span></div>
+      <div><div class="muted">連線</div><span id="iConn" class="muted"></span></div>
+    </div>
+  </div>
 
-    <!-- SHAP -->
-    <div class="card" id="shap-card">
-      <div class="section-label">
-        SHAP
-        <span id="shap-prediction-badge" style="margin-left:6px"></span>
-      </div>
+  <div class="grid2">
+    <div class="card">
+      <div class="section-label">SHAP <span class="muted">TreeExplainer · 預測類別的 log-odds · base = <span id="shapBase"></span></span></div>
       <div id="shap-features"></div>
     </div>
-
-    <!-- LIME -->
-    <div class="card" id="lime-card">
-      <div class="section-label">
-        LIME
-        <span id="lime-prediction-badge" style="margin-left:6px"></span>
-      </div>
+    <div class="card">
+      <div class="section-label">LIME <span class="muted">回歸模式 · 同一尺度 · 重複 <span id="limeRepeats"></span> 次平均</span></div>
       <div id="lime-features"></div>
-      <div id="lime-unavailable" style="display:none;color:var(--muted);font-size:12px;padding:1rem 0;">
-        LIME 僅在 HIGH_CONF 區間執行。
-      </div>
-    </div>
-
-  </div>
-
-  <div id="consistency_card">
-    <div class="section-label">VALIDATION (Top-5)</div>
-    <div id="consistency-content" style="color:var(--muted);font-size:12px;">
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;">
-        <div class="card">
-          <div style="font-size:15px;color:var(--muted);margin-bottom:4px;">FEATURE AGREEMENT</div>
-          <span style="float: right;">
-            <div id="metric-feature" style="font-size:32px;font-weight:600;color:var(--muted);">—</div>
-          </span>
-        </div> 
-        <div class="card">
-          <div style="font-size:15px;color:var(--muted);margin-bottom:4px;">SIGN AGREEMENT</div>
-          <span style="float: right;">
-            <div id="metric-sign" style="font-size:32px;font-weight:600;color:var(--muted);">—</div>
-          </span>
-        </div>
-        <div class="card">
-          <div style="font-size:15px;color:var(--muted);margin-bottom:4px;">RANK AGREEMENT</div>
-          <span style="float: right;">
-            <div id="metric-rank" style="font-size:32px;font-weight:600;color:var(--muted);">—</div>
-          </span>
-        </div>
-      </div>
     </div>
   </div>
 
-  <!-- 原始 JSON（收合） -->
+  <div class="section-label">CONSISTENCY · 三個 k 並列（括號為隨機基準）</div>
+  <div class="grid3" id="consistency"></div>
+
   <div class="card">
-    <div class="section-label" style="cursor:pointer;user-select:none;" onclick="toggleRaw()">
-      RAW DATA <span id="raw-toggle" style="float:right;color:var(--accent)">▼ 展開</span>
-    </div>
-    <div id="raw-data" style="display:none;margin-top:.75rem;">
-      <div style="margin-bottom:.5rem;font-size:11px;color:var(--muted)">SHAP</div>
-      <pre id="shap-raw" style="font-size:11px;color:var(--muted);white-space:pre-wrap;word-break:break-all;"></pre>
-      <div style="margin:1rem 0 .5rem;font-size:11px;color:var(--muted)">LIME</div>
-      <pre id="lime-raw" style="font-size:11px;color:var(--muted);white-space:pre-wrap;word-break:break-all;"></pre>
-    </div>
+    <div class="section-label" style="cursor:pointer;user-select:none" onclick="toggleRaw()">RAW DATA <span id="raw-toggle" style="float:right;color:var(--accent)">▼ 展開</span></div>
+    <pre id="raw" style="display:none;font-size:11px;color:var(--muted);white-space:pre-wrap;word-break:break-all"></pre>
   </div>
-
 </div>
 
-<!-- 錯誤狀態 -->
-<div id="xai-error" style="display:none;" class="card">
-  <span style="color:var(--danger)">✕</span>
-  <span id="error-msg" style="color:var(--muted);margin-left:8px;font-size:12px;"></span>
-</div>
-
-<div style="margin-top:.5rem">
-  <a href="/alertRecord" class="btn">← 返回警報列表</a>
-</div>
+<div style="margin-top:.5rem"><a href="javascript:history.back()" class="btn">← 返回</a></div>
 
 <script>
-  function renderFeatures(containerId, features) {
-    const container = document.getElementById(containerId);
-    if (!features || features.length === 0) {
-      container.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:.5rem 0;">無特徵資料</div>';
-      return;
-    }
-    const maxAbs = Math.max(...features.map(([, v]) => Math.abs(v)), 0.001);
-    container.innerHTML = features.map(([feat, val]) => {
-      const pct = Math.min((Math.abs(val) / maxAbs) * 100, 100).toFixed(1);
-      const color = val > 0 ? 'var(--danger)' : 'var(--ok)';
-      const sign = val > 0 ? '+' : '';
-      return `
-        <div style="margin-bottom:.6rem">
-          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
-            <span>${feat}</span>
-            <span style="color:${color}">${sign}${val.toFixed(4)}</span>
-          </div>
-          <div class="bar-track">
-            <div class="bar-fill" style="width:${pct}%;background:${color};"></div>
-          </div>
-        </div>`;
-    }).join('');
+const ID = "{{ id }}";
+let cfg;
+
+function renderFeatures(containerId, items, maxAbs) {
+  const c = document.getElementById(containerId);
+  if (!items || !items.length) { c.innerHTML = '<div class="muted">無特徵資料</div>'; return; }
+  c.innerHTML = items.map((d, i) => {
+    const pct = Math.min(Math.abs(d.weight) / maxAbs * 100, 100).toFixed(1);
+    const color = d.weight > 0 ? 'var(--danger)' : 'var(--ok)';
+    return `<div style="margin-bottom:.5rem">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">
+        <span><span class="muted">${i + 1}.</span> ${XA.esc(d.feature)}</span><span style="color:${color}">${d.weight > 0 ? '+' : ''}${d.weight.toFixed(4)}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div></div>`;
+  }).join('');
+}
+
+function toggleRaw() {
+  const raw = document.getElementById('raw'), btn = document.getElementById('raw-toggle');
+  const show = raw.style.display === 'none';
+  raw.style.display = show ? 'block' : 'none'; btn.textContent = show ? '▲ 收合' : '▼ 展開';
+}
+
+async function load() {
+  cfg = await XA.config();
+  try {
+    const [info, shap, lime, cons] = await Promise.all([
+      XA.fetchJson(`/explain/${ID}/info`), XA.fetchJson(`/explain/${ID}/shap`),
+      XA.fetchJson(`/explain/${ID}/lime`), XA.fetchJson(`/explain/${ID}/consistent`)]);
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('flowShort').textContent = info.id.slice(0, 8);
+    const run = document.getElementById('iRun'); run.textContent = info.run_name; run.href = `/history/${info.run_id}`;
+    document.getElementById('iTrue').textContent = info.true_label ?? '—';
+    document.getElementById('iPred').textContent = info.predicted_label;
+    document.getElementById('iCorrect').innerHTML = XA.correctMark(info.correct);
+    document.getElementById('iConf').textContent = XA.pct1(info.confidence);
+    document.getElementById('iZone').innerHTML = XA.zoneBadge(info.conf_zone);
+    document.getElementById('iConn').textContent = info.source_ip ? `${info.source_ip}:${info.source_port} → ${info.destination_ip}:${info.destination_port} ${info.protocol}` : `#${info.seq}（CSV 重播，無連線資訊）`;
+
+    const maxAbs = Math.max(...(shap.shap_value || []).map(d => Math.abs(d.weight)), ...(lime.lime_value || []).map(d => Math.abs(d.weight)), 1e-6);
+    document.getElementById('shapBase').textContent = XA.num(shap.base_value, 3);
+    document.getElementById('limeRepeats').textContent = lime.lime_repeats ?? '—';
+    renderFeatures('shap-features', shap.shap_value, maxAbs);
+    renderFeatures('lime-features', lime.lime_value, maxAbs);
+
+    const ks = Object.keys(cons.per_k).map(Number).sort((a, b) => a - b);
+    document.getElementById('consistency').innerHTML = ks.map(k => {
+      const m = cons.per_k[k], b = m.baseline;
+      const metric = (name, label) => `<tr><td class="muted">${label}</td><td style="text-align:right">${name === cfg.primary ? XA.badge(m[name], cfg) : XA.pct(m[name])}</td><td class="muted" style="text-align:right">(${XA.pct(b[name])})</td></tr>`;
+      return `<div class="card">
+        <div class="card-title">k = ${k} ${k === cfg.k_default ? '<span class="muted">預設</span>' : ''}</div>
+        <table class="mini" style="width:100%">
+          ${metric('feature_agreement', 'FEATURE')}${metric('sign_agreement', 'SIGN ★')}${metric('rank_agreement', 'RANK')}
+          <tr><td class="muted">LIME 穩定度</td><td style="text-align:right" colspan="2">${XA.pct(m.lime_stability)}</td></tr>
+          <tr><td class="muted">SHAP 消融下降</td><td style="text-align:right" colspan="2">${XA.num(m.shap_ablation_drop)}</td></tr>
+          <tr><td class="muted">LIME 消融下降</td><td style="text-align:right" colspan="2">${XA.num(m.lime_ablation_drop)}</td></tr>
+        </table>
+        <div style="margin-top:8px">${XA.badge(m[cfg.primary], cfg, true)}</div>
+      </div>`;
+    }).join('') || '<div class="card muted">沒有一致性資料</div>';
+
+    document.getElementById('raw').textContent = JSON.stringify({ info, shap, lime, consistency: cons }, null, 2);
+    document.getElementById('xai-content').style.display = 'block';
+  } catch (e) {
+    document.getElementById('loading').style.display = 'none';
+    const err = document.getElementById('xai-error'); err.textContent = '載入失敗：' + e.message; err.style.display = 'block';
   }
-
-  function renderBadge(elementId, prediction) {
-    if (!prediction) return;
-    const el = document.getElementById(elementId);
-    const cls = prediction === 'attack' ? 'badge-attack'
-              : prediction === 'normal' ? 'badge-normal'
-              : 'badge-suspicious';
-    el.innerHTML = `<span class="badge ${cls}">${prediction}</span>`;
-  }
-
-  function toggleRaw() {
-    const raw = document.getElementById('raw-data');
-    const btn = document.getElementById('raw-toggle');
-    const visible = raw.style.display !== 'none';
-    raw.style.display = visible ? 'none' : 'block';
-    btn.textContent = visible ? '▼ 展開' : '▲ 收合';
-  }
-
-  async function loadExplanations() {
-    const id = "{{ id }}";
-    const loading = document.getElementById('loading');
-    const content = document.getElementById('xai-content');
-    const errorDiv = document.getElementById('xai-error');
-    const errorMsg = document.getElementById('error-msg');
-
-    try {
-      const [shapRes, limeRes, consistentRes] = await Promise.allSettled([
-        fetch(`/explain/${id}/shap`).then(r => r.json()),
-        fetch(`/explain/${id}/lime`).then(r => r.json()),
-        fetch(`/explain/${id}/consistent`).then(r => r.json()),
-      ]);
-
-      loading.style.display = 'none';
-
-      // SHAP
-      if (shapRes.status === 'fulfilled') {
-        const shap = shapRes.value;
-        renderBadge('shap-prediction-badge', shap.prediction);
-        const shapItems = JSON.parse(shap.shap_value || '[]').map(d => [d.feature, d.weight]);
-        renderFeatures('shap-features', shapItems);
-        document.getElementById('shap-raw').textContent = JSON.stringify(shap, null, 2);
-      } else {
-        document.getElementById('shap-features').innerHTML =
-          '<div style="color:var(--danger);font-size:12px;">SHAP 資料載入失敗</div>';
-      }
-
-      // LIME
-      if (limeRes.status === 'fulfilled') {
-        const lime = limeRes.value;
-        if (lime && lime.lime_value) {
-          renderBadge('lime-prediction-badge', lime.prediction);
-          const limeItems = JSON.parse(lime.lime_value || '[]').map(d => [d.feature, d.weight]);
-          renderFeatures('lime-features', limeItems);
-          document.getElementById('lime-raw').textContent = JSON.stringify(lime, null, 2);
-        } else {
-          document.getElementById('lime-unavailable').style.display = 'block';
-        }
-      } else {
-        document.getElementById('lime-unavailable').style.display = 'block';
-      }
-
-      // 一致性比較
-      if (consistentRes.status === 'fulfilled') {
-        const c = consistentRes.value;
-        const metricColor = v => v >= 0.7 ? 'var(--ok)' : v >= 0.4 ? '#f0a500' : 'var(--danger)';
-        ['feature', 'sign', 'rank'].forEach(key => {
-          const val = c[`${key}_agreement`];
-          const el = document.getElementById(`metric-${key}`);
-          if (el && val != null) {
-            el.textContent = (val * 100).toFixed(0) + '%';
-            el.style.color = metricColor(val);
-          }
-        });
-      }
-
-      content.style.display = 'block';
-
-    } catch (err) {
-      loading.style.display = 'none';
-      errorMsg.textContent = '載入失敗：' + err.message;
-      errorDiv.style.display = 'block';
-    }
-  }
-
-  loadExplanations();
+}
+load();
 </script>
-
 {% endblock %}

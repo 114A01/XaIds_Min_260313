@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+{% block title %}展示 — XaIDS{% endblock %}
+{% block content %}
+
+<h1>// DEMO · 即時流量分析 + 解釋一致性燈號</h1>
+
+<div class="card">
+  <div class="toolbar" style="margin-bottom:10px">
+    <div class="section-label" style="margin:0">LIVE STATUS</div>
+    <span id="statusBadge" class="badge badge-UNCERTAIN">IDLE</span>
+    <span id="runTitle" style="font-size:13px"></span>
+    <span id="runSource" class="muted"></span>
+    <a id="detailLink" href="#" style="display:none;font-size:12px">這次測試的統計 →</a>
+  </div>
+  <div class="stats" style="grid-template-columns:repeat(5,1fr);margin-bottom:12px">
+    <div class="stat-card"><div class="stat-label">已分析 FLOW</div><div class="stat-num" id="sProcessed" style="font-size:26px">—</div></div>
+    <div class="stat-card"><div class="stat-label">已擷取</div><div class="stat-num" id="sCaptured" style="font-size:26px">—</div></div>
+    <div class="stat-card"><div class="stat-label">待分析</div><div class="stat-num" id="sPending" style="font-size:26px">—</div></div>
+    <div class="stat-card"><div class="stat-label">這次警報</div><div class="stat-num" id="sAlerts" style="font-size:26px;color:var(--danger)">—</div></div>
+    <div class="stat-card"><div class="stat-label">最近一筆</div><div class="stat-num" id="sLast" style="font-size:16px;color:var(--muted)">—</div></div>
+  </div>
+  <div id="ctrlIdle" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+    <div class="field"><span>網卡</span><select id="ifaceSelect"></select></div>
+    <div class="field"><span>BPF 過濾</span><input id="bpf" placeholder="例如 tcp port 8080"></div>
+    <div class="field"><span>預期標籤（選填）</span><select id="labelSelect"><option value="">無</option></select></div>
+    <button class="btn btn-primary" id="btnStart">▶ 開始即時擷取</button>
+    <span class="muted">CSV / pcap 重播請到「測試」頁；這裡的燈號與列表會跟著任何正在執行的測試即時更新。</span>
+  </div>
+  <div id="ctrlRunning" style="display:none;gap:12px;align-items:center">
+    <button class="btn" id="btnStop">■ 停止</button>
+    <span class="muted" id="runHint"></span>
+  </div>
+  <div id="ctrlMsg" class="muted" style="color:var(--danger);margin-top:6px"></div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <div class="toolbar" style="margin-bottom:8px">
+      <div class="section-label" style="margin:0">LIVE FEED · 最新分析的 flow（含 Benign）</div>
+      <div id="kSel" style="margin-left:auto"></div>
+    </div>
+    <div style="max-height:360px;overflow-y:auto">
+      <table>
+        <thead><tr><th>#</th><th>ZONE</th><th>來源 → 目的</th><th>預測</th><th>信心值</th><th>燈號</th><th></th></tr></thead>
+        <tbody id="feedBody"><tr><td colspan="7" class="muted">目前沒有測試在執行；開始即時擷取後，每筆分析完的 flow 會出現在這裡。</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="section-label">燈號規則</div>
+    <table>
+      <tr><td style="width:170px"><span class="light light-high">● 可信</span></td><td class="muted" id="ruleHigh"></td></tr>
+      <tr><td><span class="light light-mid">◐ 建議人工檢查</span></td><td class="muted" id="ruleMid"></td></tr>
+      <tr><td><span class="light light-low">○ 解釋不一致</span></td><td class="muted" id="ruleLow"></td></tr>
+    </table>
+    <div class="muted" style="margin-top:8px">
+      每筆 flow 的 SHAP 與 LIME 都解釋「預測類別的 log-odds」，取 top-k 特徵比較「有重疊且方向相同」的比例作為一致性分數。
+      燈號只表示兩個解釋器是否一致；一致是否代表預測較可靠，是這個研究要驗證的問題，不是既定結論。
+      門檻是暫定值，主實驗完成後依歷史頁的結果調整。
+    </div>
+  </div>
+</div>
+
+<div class="toolbar" style="margin-top:.5rem">
+  <div class="section-label" style="margin:0">ALERTS · 加入一致性燈號的警報列表</div>
+  <div class="field" style="flex-direction:row;align-items:center;gap:8px"><span>燈號</span>
+    <select id="fLevel"><option value="">全部</option><option value="high">可信</option><option value="mid">建議人工檢查</option><option value="low">解釋不一致</option><option value="none">無資料</option></select></div>
+  <span class="muted" id="meta"></span>
+</div>
+
+<div class="stats" style="grid-template-columns:repeat(4,1fr)">
+  <div class="card stat-card"><div class="stat-label">ALERTS</div><div class="stat-num" id="nAll">—</div></div>
+  <div class="card stat-card"><div class="stat-label">可信</div><div class="stat-num" id="nHigh" style="color:var(--ok)">—</div></div>
+  <div class="card stat-card"><div class="stat-label">建議人工檢查</div><div class="stat-num" id="nMid" style="color:var(--warn)">—</div></div>
+  <div class="card stat-card"><div class="stat-label">解釋不一致</div><div class="stat-num" id="nLow" style="color:var(--danger)">—</div></div>
+</div>
+
+<div class="card" style="padding:0;overflow-x:auto">
+  <table>
+    <thead><tr><th>時間</th><th>測試</th><th>攻擊類型</th><th>信心值</th><th>ZONE</th><th>真實標籤</th><th>一致性燈號</th><th></th></tr></thead>
+    <tbody id="alertBody"><tr><td colspan="8" class="muted">載入中…</td></tr></tbody>
+  </table>
+</div>
+
+<style>
+  tr.fresh td { animation: flash 1.5s ease-out; }
+  @keyframes flash { from { background: rgba(79,142,247,.25); } to { background: transparent; } }
+</style>
+
+<script>
+let cfg, K, alerts = [], status = null, evtSource = null, streamRunId = null, seen = new Set();
+let runAlerts = 0;
+const FEED_MAX = 60;
+
+function scoreOf(a) {
+  if (a.consistency_per_k) { const c = a.consistency_per_k[K] || a.consistency_per_k[String(K)]; return c ? c[cfg.primary] : null; }
+  return a.consistency;
+}
+
+// ── 警報列表 ──────────────────────────────────────────
+async function loadAlerts() {
+  alerts = await XA.fetchJson(`/api/alertRecord?k=${K}`);
+  seen = new Set(alerts.map(a => a.alert_id));
+  renderAlerts();
+}
+function renderAlerts() {
+  const lv = document.getElementById('fLevel').value;
+  const counts = { high: 0, mid: 0, low: 0, none: 0 };
+  alerts.forEach(a => { a.level = XA.levelOf(scoreOf(a), cfg); counts[a.level]++; });
+  document.getElementById('nAll').textContent = alerts.length;
+  document.getElementById('nHigh').textContent = counts.high;
+  document.getElementById('nMid').textContent = counts.mid;
+  document.getElementById('nLow').textContent = counts.low;
+  const rows = alerts.filter(a => !lv || a.level === lv);
+  document.getElementById('meta').textContent = `顯示 ${rows.length} / ${alerts.length} 筆（最近 500 筆，新警報會即時插入最上方）`;
+  document.getElementById('alertBody').innerHTML = rows.map(a => `
+    <tr class="${a.fresh ? 'fresh' : ''}">
+      <td class="muted">${XA.time(a.alert_time)}</td>
+      <td><a href="/history/${a.run_id}">${XA.esc(a.run_name)}</a></td>
+      <td>${XA.esc(a.attack_type)}</td>
+      <td>${XA.pct1(a.confidence)}</td>
+      <td>${XA.zoneBadge(a.conf_zone)}</td>
+      <td>${a.true_label ? `${XA.esc(a.true_label)} ${XA.correctMark(a.true_label === a.attack_type)}` : '<span class="muted">—</span>'}</td>
+      <td>${XA.badge(scoreOf(a), cfg, true)}</td>
+      <td><a href="/explain/${a.flow_id}" style="font-size:11px">Explain</a></td>
+    </tr>`).join('') || '<tr><td colspan="8" class="muted">沒有警報</td></tr>';
+  alerts.forEach(a => a.fresh = false);
+}
+
+// ── 即時狀態 ──────────────────────────────────────────
+function setBadge(label, color) {
+  const b = document.getElementById('statusBadge');
+  b.textContent = label; b.style.background = 'transparent'; b.style.color = color; b.style.border = `1px solid ${color}`;
+}
+function showStatus(s) {
+  status = s;
+  const running = s.running;
+  document.getElementById('ctrlIdle').style.display = running ? 'none' : 'flex';
+  document.getElementById('ctrlRunning').style.display = running ? 'flex' : 'none';
+  if (running) setBadge(s.source_type === 'live' ? 'CAPTURING' : 'RUNNING', 'var(--accent)');
+  else if (s.error) setBadge('ERROR', 'var(--danger)');
+  else if (s.run_id) setBadge('IDLE · 上一次已結束', 'var(--muted)');
+  else setBadge('IDLE', 'var(--muted)');
+  document.getElementById('runTitle').textContent = s.name || '';
+  document.getElementById('runSource').textContent = s.run_id ? `${s.source_type} · ${s.source}${s.expected_label ? ` · 預期 ${s.expected_label}` : ''}` : '';
+  const link = document.getElementById('detailLink');
+  if (s.run_id) { link.href = `/history/${s.run_id}`; link.style.display = ''; } else link.style.display = 'none';
+  document.getElementById('sProcessed').textContent = s.run_id ? `${s.processed}${s.source_type !== 'live' && s.total ? ` / ${s.total}` : ''}` : '—';
+  document.getElementById('sCaptured').textContent = s.capture ? s.capture.flow_count : (s.source_type === 'live' ? s.processed : '—');
+  document.getElementById('sPending').textContent = s.capture ? s.capture.pending : '—';
+  document.getElementById('runHint').textContent = s.source_type === 'live'
+    ? '擷取中：一條 flow 閒置 30 秒（或結束）後才會送出分析，請稍候。' : '重播中…';
+  if (s.error) document.getElementById('ctrlMsg').textContent = `錯誤：${s.error}`;
+}
+
+async function pollStatus() {
+  let s;
+  try { s = await XA.fetchJson('/run/status'); } catch (e) { setBadge('OFFLINE', 'var(--danger)'); return; }
+  showStatus(s);
+  if (s.run_id && s.run_id !== streamRunId) attachRun(s);   // 新的 run（執行中或剛結束）都把結果接上來
+}
+
+async function attachRun(s) {
+  streamRunId = s.run_id;
+  runAlerts = 0;
+  document.getElementById('feedBody').innerHTML = '';
+  document.getElementById('ctrlMsg').textContent = '';
+  const existing = await XA.fetchJson('/run/results');
+  existing.filter(ev => ev.zone !== 'DONE' && ev.zone !== 'CONNECTED').forEach(ev => handleEvent(ev, false));
+  renderAlerts();
+  if (s.running) connectSSE(existing.length);
+}
+
+function connectSSE(offset) {
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource(`/stream?offset=${offset}`);
+  evtSource.onmessage = e => { const ev = JSON.parse(e.data); handleEvent(ev, true); if (ev.alert_id) renderAlerts(); };
+  evtSource.onerror = () => { evtSource.close(); evtSource = null; };
+}
+
+function handleEvent(ev, live) {
+  if (ev.zone === 'CONNECTED') return;
+  if (ev.zone === 'DONE') {
+    if (evtSource) { evtSource.close(); evtSource = null; }
+    pollStatus();
+    return;
+  }
+  document.getElementById('sLast').textContent = new Date().toTimeString().slice(0, 8);
+  document.getElementById('sProcessed').textContent = `${ev.processed}${ev.total && status && status.source_type !== 'live' ? ` / ${ev.total}` : ''}`;
+  const feed = document.getElementById('feedBody');
+  const tr = document.createElement('tr');
+  tr.className = live ? 'fresh' : '';
+  tr.dataset.seq = ev.seq;
+  tr.innerHTML = `
+    <td class="muted">${ev.seq}</td>
+    <td>${XA.zoneBadge(ev.zone)}</td>
+    <td class="muted" style="white-space:nowrap">${XA.esc(ev.source_ip || '—')} → ${XA.esc(ev.destination_ip || '—')}</td>
+    <td>${XA.esc(ev.predicted_label)}${ev.correct != null ? ' ' + XA.correctMark(ev.correct) : ''}</td>
+    <td>${XA.pct1(ev.confidence)}</td>
+    <td class="cons-cell">${XA.badge(consistencyOf(ev), cfg)}</td>
+    <td><a href="/explain/${ev.flow_id}" target="_blank" style="font-size:11px">Explain</a></td>`;
+  tr._ev = ev;
+  feed.prepend(tr);
+  while (feed.children.length > FEED_MAX) feed.lastChild.remove();
+
+  if (ev.alert_id) {
+    runAlerts++;
+    document.getElementById('sAlerts').textContent = runAlerts;
+    if (!seen.has(ev.alert_id)) {
+      seen.add(ev.alert_id);
+      alerts.unshift({
+        alert_id: ev.alert_id, flow_id: ev.flow_id, run_id: status ? status.run_id : streamRunId,
+        run_name: status ? status.name : '', attack_type: ev.attack_type, confidence: ev.confidence,
+        conf_zone: ev.zone, true_label: ev.true_label, alert_time: ev.time || localNow(),
+        consistency_per_k: ev.consistency, fresh: live,
+      });
+      if (alerts.length > 500) alerts.pop();
+    }
+  }
+}
+// 本地時間的 ISO 字串（不帶時區）。toISOString() 是 UTC，和資料庫的本地時間混在同一張表會差 8 小時。
+function localNow() {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+}
+function consistencyOf(ev) {
+  const c = ev.consistency && (ev.consistency[K] || ev.consistency[String(K)]);
+  return c ? c[cfg.primary] : null;
+}
+function rerenderK() {
+  document.querySelectorAll('#feedBody tr').forEach(tr => { if (tr._ev) tr.querySelector('.cons-cell').innerHTML = XA.badge(consistencyOf(tr._ev), cfg); });
+}
+
+// ── 控制 ─────────────────────────────────────────────
+async function startLive() {
+  const body = {
+    source_type: 'live',
+    source: document.getElementById('ifaceSelect').value,
+    bpf_filter: document.getElementById('bpf').value,
+    expected_label: document.getElementById('labelSelect').value || null,
+    max_rows: null,
+  };
+  document.getElementById('ctrlMsg').textContent = '';
+  try {
+    const res = await XA.fetchJson('/run/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    showStatus(res);
+    attachRun(res);
+  } catch (e) { document.getElementById('ctrlMsg').textContent = e.message; }
+}
+async function stopRun() {
+  try { await XA.fetchJson('/run/stop', { method: 'POST' }); } catch (e) { document.getElementById('ctrlMsg').textContent = e.message; }
+  setTimeout(pollStatus, 500);
+}
+
+async function init() {
+  cfg = await XA.config();
+  document.getElementById('ruleHigh').textContent = `一致性 ≥ ${XA.pct(cfg.consistency_high)}：SHAP 與 LIME 挑出的重要特徵與影響方向大致相同。`;
+  document.getElementById('ruleMid').textContent = `${XA.pct(cfg.consistency_low)} ≤ 一致性 < ${XA.pct(cfg.consistency_high)}：兩個解釋器只有部分重疊，建議人工確認。`;
+  document.getElementById('ruleLow').textContent = `一致性 < ${XA.pct(cfg.consistency_low)}：兩個解釋器對這筆預測給出不同的理由，建議人工檢查。`;
+  K = XA.renderKSelector('kSel', cfg, k => { K = k; rerenderK(); loadAlerts(); });
+  document.getElementById('fLevel').addEventListener('change', renderAlerts);
+  document.getElementById('btnStart').addEventListener('click', startLive);
+  document.getElementById('btnStop').addEventListener('click', stopRun);
+  const ifaces = await XA.fetchJson('/capture/interfaces');
+  document.getElementById('ifaceSelect').innerHTML = ifaces.interfaces.map(f => `<option value="${XA.esc(f)}">${XA.esc(f)}</option>`).join('') || '<option value="">沒有網卡</option>';
+  document.getElementById('ifaceSelect').value = ifaces.default_interface;
+  document.getElementById('bpf').value = ifaces.default_bpf_filter || '';
+  document.getElementById('labelSelect').innerHTML += cfg.class_names.map(c => `<option value="${c}">${c}</option>`).join('');
+  await loadAlerts();
+  await pollStatus();
+  setInterval(pollStatus, 2000);
+}
+init();
+</script>
+{% endblock %}

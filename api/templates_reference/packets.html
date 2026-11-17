@@ -1,42 +1,33 @@
 {% extends "base.html" %}
-{% block title %}封包紀錄 — XaIDS Dashboard{% endblock %}
+{% block title %}流量紀錄 — XaIDS{% endblock %}
 {% block content %}
 
-<h1>// PACKET RECORDS</h1>
+<h1>// FLOW RECORDS <span class="muted" id="meta"></span></h1>
 
-<div class="card" style="padding:0;overflow:hidden;">
+<div class="card" style="padding:0;overflow-x:auto">
   <table>
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>SOURCE IP</th>
-        <th>DESTINATION IP</th>
-        <th>PROTOCOL</th>
-        <th>SIZE</th>
-        <th>TIME</th>
-        <th>ACTION</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for packet in packets %}
-      <tr>
-        <td style="color:var(--muted)">#{{ packet.id }}</td>
-        <td>{{ packet.source_ip }}</td>
-        <td>{{ packet.destination_ip }}</td>
-        <td style="color:var(--muted)">{{ packet.protocol }}</td>
-        <td style="color:var(--muted)">{{ packet.size }} B</td>
-        <td style="color:var(--muted);font-size:12px">{{ packet.time }}</td>
-        <td>
-          <a href="/explain/{{ packet.id }}" class="btn" style="font-size:11px;padding:3px 10px">XAI</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
+    <thead><tr><th>時間</th><th>測試</th><th>#</th><th>來源 → 目的</th><th>協定</th><th>真實標籤</th><th>預測</th><th>OK</th><th>信心值</th><th>ZONE</th><th></th></tr></thead>
+    <tbody id="body"><tr><td colspan="11" class="muted">載入中…</td></tr></tbody>
   </table>
 </div>
 
-<div style="margin-top:.5rem">
-  <a href="/" class="btn">← 返回首頁</a>
-</div>
-
+<script>
+async function load() {
+  const flows = await XA.fetchJson('/api/packetRecord?limit=500');
+  document.getElementById('meta').textContent = `最近 ${flows.length} 筆`;
+  document.getElementById('body').innerHTML = flows.map(f => {
+    const correct = f.true_label == null ? null : f.true_label === f.predicted_label;
+    return `<tr>
+      <td class="muted">${XA.time(f.start_time)}</td>
+      <td><a href="/history/${f.run_id}">${XA.esc(f.run_name)}</a></td>
+      <td class="muted">${f.seq}</td>
+      <td class="muted">${f.source_ip ? `${f.source_ip}:${f.source_port} → ${f.destination_ip}:${f.destination_port}` : '—'}</td>
+      <td class="muted">${XA.esc(f.protocol ?? '—')}</td>
+      <td>${XA.esc(f.true_label ?? '—')}</td><td>${XA.esc(f.predicted_label)}</td><td>${XA.correctMark(correct)}</td>
+      <td>${XA.pct1(f.confidence)}</td><td>${XA.zoneBadge(f.conf_zone)}</td>
+      <td><a href="/explain/${f.id}" style="font-size:11px">Explain</a></td></tr>`;
+  }).join('') || '<tr><td colspan="11" class="muted">還沒有任何 flow</td></tr>';
+}
+load();
+</script>
 {% endblock %}

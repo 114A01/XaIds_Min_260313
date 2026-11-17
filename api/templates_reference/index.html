@@ -1,29 +1,23 @@
 {% extends "base.html" %}
-{% block title %}首頁 — XaIDS Dashboard{% endblock %}
+{% block title %}首頁 — XaIDS{% endblock %}
 {% block content %}
 
 <h1>// SYSTEM STATUS</h1>
 
-<div class="stats">
-  <div class="card stat-card">
-    <div class="stat-label">TOTAL PACKETS</div>
-    <div class="stat-num" id="flow_num" style="color:var(--text)">—</div>
-  </div>
-  <div class="card stat-card">
-    <div class="stat-label">ATTACKS DETECTED</div>
-    <div class="stat-num" id="alert_num" style="color:var(--danger)">—</div>
-  </div>
-  <div class="card stat-card">
-    <div class="stat-label">PENDING REVIEW</div>
-    <div class="stat-num" style="color:var(--warn)">—</div>
-  </div>
+<div class="stats" style="grid-template-columns:repeat(4,1fr)">
+  <div class="card stat-card"><div class="stat-label">TEST RUNS</div><div class="stat-num" id="run_num">—</div></div>
+  <div class="card stat-card"><div class="stat-label">FLOWS ANALYZED</div><div class="stat-num" id="flow_num">—</div></div>
+  <div class="card stat-card"><div class="stat-label">ALERTS</div><div class="stat-num" id="alert_num" style="color:var(--danger)">—</div></div>
+  <div class="card stat-card"><div class="stat-label">CURRENT RUN</div><div class="stat-num" id="run_state" style="font-size:20px;color:var(--muted)">—</div></div>
 </div>
 
 <div class="card">
-  <div class="section-label">QUICK LINKS</div>
-  <a href="/packetRecord" class="btn">查看封包紀錄 →</a>
+  <div class="section-label">PAGES</div>
+  <a href="/test" class="btn">測試：重播 CSV / pcap 或即時擷取 →</a>
   <span style="display:inline-block;width:8px"></span>
-  <a href="/alertRecord" class="btn">查看警報紀錄 →</a>
+  <a href="/history" class="btn">歷史：每次測試的一致性與正確性分析 →</a>
+  <span style="display:inline-block;width:8px"></span>
+  <a href="/demo" class="btn">展示：加入一致性燈號的警報列表 →</a>
   <span style="display:inline-block;width:8px"></span>
   <a href="/docs" class="btn">API 文件 →</a>
 </div>
@@ -31,51 +25,41 @@
 <div class="card">
   <div class="section-label">SYSTEM INFO</div>
   <table>
-    <tr><td style="color:var(--muted);width:160px">狀態</td><td style="color:var(--ok)">● RUNNING</td></tr>
-    <tr><td style="color:var(--muted)">模型</td><td>XGBoost</td></tr>
-    <tr><td style="color:var(--muted)">XAI</td><td>SHAP + LIME</td></tr>
-    <tr><td style="color:var(--muted)">蜜罐</td><td>Cowrie</td></tr>
-    <tr><td style="color:var(--muted)">API</td><td>FastAPI + Uvicorn</td></tr>
+    <tr><td class="muted" style="width:160px">模型</td><td id="modelName">—</td></tr>
+    <tr><td class="muted">類別</td><td id="classes">—</td></tr>
+    <tr><td class="muted">特徵</td><td id="features" class="muted">—</td></tr>
+    <tr><td class="muted">XAI</td><td>SHAP（TreeExplainer）+ LIME（回歸模式），都解釋預測類別的 log-odds<span id="shapRef"></span></td></tr>
+    <tr><td class="muted">一致性主指標</td><td id="primary">—</td></tr>
+    <tr><td class="muted">API</td><td>FastAPI + Uvicorn · MariaDB</td></tr>
   </table>
 </div>
 
 <div class="card">
-  <div class="section-label">CONFIDENCE ZONES</div>
+  <div class="section-label">PIPELINE · 每一筆 flow</div>
   <table>
-    <tr>
-      <td style="width:160px"><span class="badge badge-UNCERTAIN">UNCERTAIN</span></td>
-      <td style="color:var(--muted);font-size:12px">conf &lt; 0.6　→　存 log，不發警報，不做 XAI</td>
-    </tr>
-    <tr>
-      <td><span class="badge badge-SUSPICIOUS">SUSPICIOUS</span></td>
-      <td style="color:var(--muted);font-size:12px">0.6 ≤ conf &lt; 0.85　→　發警報 + SHAP</td>
-    </tr>
-    <tr>
-      <td><span class="badge badge-HIGH_CONF">HIGH_CONF</span></td>
-      <td style="color:var(--muted);font-size:12px">conf ≥ 0.85　→　發警報 + SHAP + LIME + 蜜罐驗證</td>
-    </tr>
+    <tr><td style="width:160px"><span class="badge badge-UNCERTAIN">UNCERTAIN</span></td><td class="muted">conf &lt; 0.6　→　記錄 + SHAP + LIME + 一致性，不發警報</td></tr>
+    <tr><td><span class="badge badge-BENIGN">BENIGN</span></td><td class="muted">預測 Benign 且 conf ≥ 0.6　→　記錄 + SHAP + LIME + 一致性，不發警報</td></tr>
+    <tr><td><span class="badge badge-SUSPICIOUS">SUSPICIOUS</span></td><td class="muted">攻擊且 0.6 ≤ conf &lt; 0.85　→　發警報 + SHAP + LIME + 一致性燈號</td></tr>
+    <tr><td><span class="badge badge-HIGH_CONF">HIGH_CONF</span></td><td class="muted">攻擊且 conf ≥ 0.85　→　發警報 + SHAP + LIME + 一致性燈號</td></tr>
   </table>
 </div>
 
 <script>
-  let evtSource = null;
-  let totalRows = 0;
-  let processedRows = 0;
-
-  async function laodFlowCount() {
-    const el_flow= document.getElementById("flow_num");
-    const el_alert = document.getElementById("alert_num")
-    res_flow = await fetch("/flow/number")
-    data_flow = await res_flow.json();
-    el_flow.textContent = data_flow.flow_count.toLocaleString();
-
-    res_alert = await fetch("/alert/number");
-    data_alert = await res_alert.json();
-    el_alert.textContent = data_alert.alert_count.toLocaleString();
-  }
-
-  laodFlowCount();
-  setInterval(laodFlowCount, 10_000);
+async function load() {
+  const [cfg, flows, alerts, runs, status] = await Promise.all([
+    XA.config(), XA.fetchJson('/flow/number'), XA.fetchJson('/alert/number'), XA.fetchJson('/api/runs'), XA.fetchJson('/run/status')]);
+  document.getElementById('flow_num').textContent = flows.flow_count.toLocaleString();
+  document.getElementById('alert_num').textContent = alerts.alert_count.toLocaleString();
+  document.getElementById('run_num').textContent = runs.length;
+  document.getElementById('run_state').textContent = status.running ? `RUNNING · ${status.name}` : 'IDLE';
+  document.getElementById('run_state').style.color = status.running ? 'var(--accent)' : 'var(--muted)';
+  document.getElementById('modelName').textContent = cfg.model_name;
+  document.getElementById('classes').textContent = cfg.class_names.join('、');
+  document.getElementById('features').textContent = cfg.feature_names.join(', ');
+  document.getElementById('shapRef').textContent = cfg.shap_reference === 'background' ? '，並使用同一份背景樣本' : '（SHAP 參考分布：訓練分布，與 LIME 不同）';
+  document.getElementById('primary').textContent = `${cfg.primary}，k 預設 ${cfg.k_default}（可選 ${cfg.ks.join(' / ')}）`;
+}
+load();
+setInterval(load, 10000);
 </script>
-
 {% endblock %}

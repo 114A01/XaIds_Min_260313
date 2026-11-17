@@ -14,8 +14,6 @@
     start_capture(loop, queue, ...)  在獨立子行程擷取，record 送進 asyncio.Queue
     stop_capture(timeout)            停止擷取並清理 NFStreamer 的 meter 行程
     get_capture_status()             目前狀態（是否執行中、來源、flow 數、錯誤訊息…）
-  相容舊介面
-    Start(loop, queue) / Stop()
 
 record 格式
 -----------
@@ -271,13 +269,3 @@ def get_capture_status():
                 "idle_timeout": IDLE_TIMEOUT, "active_timeout": ACTIVE_TIMEOUT,
                 "started_at": None, "stopped_at": None, "flow_count": 0, "error": None}
     return session.status()
-
-
-# --- 相容舊介面（core/pipeline.py 使用）-----------------------
-
-def Start(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue):
-    return start_capture(loop, queue)
-
-
-def Stop():
-    return stop_capture()

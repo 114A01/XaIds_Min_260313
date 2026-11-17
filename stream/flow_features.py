@@ -20,6 +20,7 @@ NFSTREAM_PARAMS = dict(
 )
 
 FEATURES = [
+    # 原本的 12 個
     "protocol",
     "bidirectional_duration_ms",
     "bidirectional_mean_piat_ms",
@@ -32,6 +33,17 @@ FEATURES = [
     "bidirectional_syn_packets",
     "bidirectional_ack_packets",
     "bidirectional_rst_packets",
+    # 7 類模型新增的 10 個（分方向的封包統計，見 MODEL_CARD_7class.md）
+    "src2dst_stddev_ps",
+    "bidirectional_min_ps",
+    "dst2src_stddev_ps",
+    "src2dst_min_ps",
+    "bidirectional_min_piat_ms",
+    "src2dst_ack_packets",
+    "src2dst_psh_packets",
+    "bidirectional_max_ps",
+    "src2dst_max_ps",
+    "src2dst_mean_ps",
 ]
 
 

@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% block title %}測試 — XaIDS{% endblock %}
+{% block content %}
+
+<h1>// TEST RUN</h1>
+
+<div class="card">
+  <div class="section-label">SOURCE</div>
+  <div class="radio-group" style="margin-bottom:12px">
+    <label><input type="radio" name="srcType" value="csv" checked> CSV 重播</label>
+    <label><input type="radio" name="srcType" value="pcap"> pcap 重播</label>
+    <label><input type="radio" name="srcType" value="live"> 即時擷取</label>
+  </div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
+    <div class="field" id="fCsv"><span>CSV 檔案</span><select id="csvSelect"></select></div>
+    <div class="field" id="fPcap" style="display:none"><span>PCAP 檔案</span><select id="pcapSelect"></select></div>
+    <div class="field" id="fIface" style="display:none"><span>網卡</span><select id="ifaceSelect"></select></div>
+    <div class="field" id="fBpf" style="display:none"><span>BPF 過濾</span><input id="bpf" placeholder="例如 tcp port 8080"></div>
+    <div class="field"><span>預期標籤（真實標籤）</span><select id="labelSelect"><option value="">無／用 CSV 的 label 欄</option></select></div>
+    <div class="field"><span>最多處理筆數</span><input id="maxRows" type="number" min="1" placeholder="留空 = 全部" style="min-width:110px"></div>
+    <div class="field"><span>LIME 樣本數</span><input id="limeSamples" type="number" min="100" max="20000" step="100" style="min-width:110px"></div>
+    <div class="field"><span>LIME 重複次數</span><input id="limeRepeats" type="number" min="1" max="50" style="min-width:90px"></div>
+  </div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
+    <div class="field" style="flex:1"><span>測試名稱</span><input id="runName" placeholder="留空自動命名"></div>
+    <div class="field" style="flex:2"><span>備註</span><input id="runNote" placeholder="例如：用來測試 SYN flood 的誤判"></div>
+    <button class="btn btn-primary" id="btnStart" onclick="startRun()">▶ 開始測試</button>
+    <button class="btn" onclick="stopRun()">■ 停止</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="section-label">PROGRESS</div>
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px;flex-wrap:wrap">
+    <span id="statusBadge" class="badge badge-UNCERTAIN">IDLE</span>
+    <span id="runTitle" style="font-size:13px"></span>
+    <span id="progressText" class="muted">尚未開始</span>
+    <a id="detailLink" href="#" style="display:none;font-size:12px">查看這次測試的統計 →</a>
+  </div>
+  <div style="background:var(--border);border-radius:3px;height:6px;overflow:hidden">
+    <div id="progressBar" style="height:100%;background:var(--accent);width:0%;transition:width .3s;border-radius:3px"></div>
+  </div>
+</div>
+
+<div class="stats" style="grid-template-columns:repeat(7,1fr)">
+  <div class="card stat-card"><div class="stat-label">BENIGN</div><div class="stat-num" id="cntBENIGN" style="color:var(--ok)">0</div></div>
+  <div class="card stat-card"><div class="stat-label">UNCERTAIN</div><div class="stat-num" id="cntUNCERTAIN" style="color:var(--muted)">0</div></div>
+  <div class="card stat-card"><div class="stat-label">SUSPICIOUS</div><div class="stat-num" id="cntSUSPICIOUS" style="color:var(--warn)">0</div></div>
+  <div class="card stat-card"><div class="stat-label">HIGH_CONF</div><div class="stat-num" id="cntHIGH_CONF" style="color:var(--danger)">0</div></div>
+  <div class="card stat-card"><div class="stat-label">TOTAL</div><div class="stat-num" id="cntTOTAL">0</div></div>
+  <div class="card stat-card"><div class="stat-label">CORRECT</div><div class="stat-num" id="cntCorrect" style="color:var(--ok)">—</div></div>
+  <div class="card stat-card"><div class="stat-label">MEAN CONSIST.</div><div class="stat-num" id="meanCons" style="color:var(--accent)">—</div></div>
+</div>
+
+<div class="card">
+  <div class="toolbar" style="margin-bottom:8px">
+    <div class="section-label" style="margin:0">LIVE RESULTS</div>
+    <div id="kSel" style="margin-left:auto"></div>
+  </div>
+  <div style="max-height:520px;overflow-y:auto">
+    <table>
+      <thead><tr>
+        <th>#</th><th>ZONE</th><th>TRUE</th><th>PREDICTED</th><th>OK</th><th>CONF</th>
+        <th>TOP SHAP</th><th>TOP LIME</th><th>CONSISTENCY</th><th></th>
+      </tr></thead>
+      <tbody id="resultBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let cfg, K, evtSource = null, pollTimer = null, idleTimer = null, currentRunId = null;
+const events = [];
+const cnt = { BENIGN: 0, UNCERTAIN: 0, SUSPICIOUS: 0, HIGH_CONF: 0 };
+let nCorrect = 0, nLabeled = 0;
+
+function srcType() { return document.querySelector('input[name=srcType]:checked').value; }
+function updateSourceFields() {
+  const t = srcType();
+  document.getElementById('fCsv').style.display   = t === 'csv'  ? '' : 'none';
+  document.getElementById('fPcap').style.display  = t === 'pcap' ? '' : 'none';
+  document.getElementById('fIface').style.display = t === 'live' ? '' : 'none';
+  document.getElementById('fBpf').style.display   = t === 'live' ? '' : 'none';
+}
+document.querySelectorAll('input[name=srcType]').forEach(r => r.addEventListener('change', updateSourceFields));
+
+async function loadOptions() {
+  const [files, ifaces] = await Promise.all([XA.fetchJson('/files'), XA.fetchJson('/capture/interfaces')]);
+  const opt = (list, empty) => list.length ? list.map(f => `<option value="${XA.esc(f)}">${XA.esc(f)}</option>`).join('') : `<option value="">${empty}</option>`;
+  document.getElementById('csvSelect').innerHTML  = opt(files.csv, 'CSV 目錄沒有檔案');
+  document.getElementById('pcapSelect').innerHTML = opt(files.pcap, 'data/pcap/ 沒有 pcap');
+  document.getElementById('ifaceSelect').innerHTML = opt(ifaces.interfaces, '沒有網卡');
+  document.getElementById('ifaceSelect').value = ifaces.default_interface;
+  document.getElementById('bpf').value = ifaces.default_bpf_filter || '';
+  const ls = document.getElementById('labelSelect');
+  ls.innerHTML += cfg.class_names.map(c => `<option value="${c}">${c}</option>`).join('');
+  const mr = document.getElementById('maxRows');
+  mr.value = cfg.default_max_rows; mr.max = cfg.max_rows_limit;
+  mr.title = `只用於 CSV / pcap。留空表示全部，上限 ${cfg.max_rows_limit.toLocaleString()} 筆`;
+  document.getElementById('limeSamples').value = cfg.default_lime_num_samples;
+  document.getElementById('limeRepeats').value = cfg.default_lime_repeats;
+}
+
+function resetView() {
+  events.length = 0;
+  document.getElementById('resultBody').innerHTML = '';
+  Object.keys(cnt).forEach(z => cnt[z] = 0);
+  nCorrect = nLabeled = 0;
+  updateCounters();
+  document.getElementById('progressBar').style.width = '0%';
+  document.getElementById('detailLink').style.display = 'none';
+}
+
+async function startRun() {
+  const t = srcType();
+  const body = {
+    source_type: t,
+    source: t === 'csv' ? document.getElementById('csvSelect').value
+          : t === 'pcap' ? document.getElementById('pcapSelect').value
+          : document.getElementById('ifaceSelect').value,
+    name: document.getElementById('runName').value,
+    note: document.getElementById('runNote').value,
+    expected_label: document.getElementById('labelSelect').value || null,
+    bpf_filter: t === 'live' ? document.getElementById('bpf').value : null,
+    max_rows: parseInt(document.getElementById('maxRows').value, 10) || null,
+    lime_num_samples: parseInt(document.getElementById('limeSamples').value, 10) || null,
+    lime_repeats: parseInt(document.getElementById('limeRepeats').value, 10) || null,
+  };
+  if (!body.source) { setStatus('NO SOURCE', 'var(--warn)'); document.getElementById('progressText').textContent = '請先選擇來源'; return; }
+  const btn = document.getElementById('btnStart');
+  if (btn.disabled) return;
+  if (pollTimer) { document.getElementById('progressText').textContent = '已有測試在執行中，請先停止'; return; }
+  btn.disabled = true;
+  resetView();
+  setStatus('STARTING', 'var(--accent)');
+  document.getElementById('progressText').textContent = '送出請求中…';
+  try {
+    const res = await XA.fetchJson('/run/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    showRunning(res);
+    connectSSE(0);
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(pollStatus, 2000);
+  } catch (e) {
+    setStatus('ERROR', 'var(--warn)');
+    document.getElementById('progressText').textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function stopRun() {
+  await fetch('/run/stop', { method: 'POST' });
+}
+
+// 閒置時每 3 秒看一次有沒有別的分頁啟動了新的 run，有的話接上串流
+async function watchIdle() {
+  if (pollTimer) return;
+  const s = await XA.fetchJson('/run/status').catch(() => null);
+  if (s && s.running && s.run_id !== currentRunId) {
+    resetView(); showRunning(s); connectSSE(0); pollTimer = setInterval(pollStatus, 2000);
+  }
+}
+
+function showRunning(status) {
+  currentRunId = status.run_id;
+  setStatus(status.source_type === 'live' ? 'CAPTURING' : 'RUNNING', 'var(--accent)');
+  document.getElementById('runTitle').textContent = status.name || '';
+  document.getElementById('progressText').textContent = status.source_type === 'live' ? '即時擷取中…（flow 閒置 30 秒才會送出）' : '分析中…';
+  const link = document.getElementById('detailLink');
+  link.href = `/history/${status.run_id}`; link.style.display = '';
+}
+
+function setStatus(label, color) {
+  const b = document.getElementById('statusBadge');
+  b.textContent = label; b.style.background = 'transparent'; b.style.color = color; b.style.border = `1px solid ${color}`;
+}
+
+function handleEvent(ev) {
+  if (ev.zone === 'CONNECTED') return;
+  if (ev.zone === 'DONE') {
+    setStatus(ev.status === 'done' ? 'DONE' : ev.status.toUpperCase(), ev.status === 'error' ? 'var(--danger)' : 'var(--ok)');
+    document.getElementById('progressBar').style.width = '100%';
+    document.getElementById('progressText').textContent = ev.error ? `錯誤：${ev.error}` : `完成：共處理 ${ev.processed} / ${ev.total} 筆`;
+    if (evtSource) evtSource.close();
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    return;
+  }
+  events.push(ev);
+  if (ev.zone in cnt) cnt[ev.zone]++;
+  if (ev.correct != null) { nLabeled++; if (ev.correct) nCorrect++; }
+  updateCounters();
+  if (ev.total > 0) {
+    document.getElementById('progressBar').style.width = (ev.processed / ev.total * 100).toFixed(0) + '%';
+    document.getElementById('progressText').textContent = `${ev.processed} / ${ev.total} 筆`;
+  }
+  document.getElementById('resultBody').prepend(renderRow(ev));
+}
+
+function consistencyOf(ev) {
+  const c = ev.consistency && (ev.consistency[K] || ev.consistency[String(K)]);
+  return c ? c[cfg.primary] : null;
+}
+
+function renderRow(ev) {
+  const tr = document.createElement('tr');
+  tr.dataset.seq = ev.seq;
+  const top = l => l && l.length ? `${l[0].feature} (${l[0].weight > 0 ? '+' : ''}${l[0].weight})` : '—';
+  tr.innerHTML = `
+    <td class="muted">${ev.seq}</td>
+    <td>${XA.zoneBadge(ev.zone)}</td>
+    <td>${XA.esc(ev.true_label ?? '—')}</td>
+    <td>${XA.esc(ev.predicted_label)}</td>
+    <td>${XA.correctMark(ev.correct)}</td>
+    <td><div class="conf-bar"><div class="conf-track"><div class="conf-fill" style="width:${ev.confidence * 100}%;background:var(--accent)"></div></div><span class="muted">${XA.pct1(ev.confidence)}</span></div></td>
+    <td class="muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${top(ev.shap_top3)}</td>
+    <td class="muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${top(ev.lime_top3)}</td>
+    <td class="cons-cell">${XA.badge(consistencyOf(ev), cfg)}</td>
+    <td><a href="/explain/${ev.flow_id}" target="_blank" style="font-size:11px">Explain</a></td>`;
+  return tr;
+}
+
+function rerenderK() {
+  document.querySelectorAll('#resultBody tr').forEach(tr => {
+    const ev = events.find(e => String(e.seq) === tr.dataset.seq);
+    if (ev) tr.querySelector('.cons-cell').innerHTML = XA.badge(consistencyOf(ev), cfg);
+  });
+  updateCounters();
+}
+
+function updateCounters() {
+  Object.keys(cnt).forEach(z => document.getElementById('cnt' + z).textContent = cnt[z]);
+  document.getElementById('cntTOTAL').textContent = Object.values(cnt).reduce((a, b) => a + b, 0);
+  document.getElementById('cntCorrect').textContent = nLabeled ? `${XA.pct(nCorrect / nLabeled)}` : '—';
+  const scores = events.map(consistencyOf).filter(v => v != null);
+  document.getElementById('meanCons').textContent = scores.length ? XA.pct(scores.reduce((a, b) => a + b, 0) / scores.length) : '—';
+}
+
+async function pollStatus() {
+  const s = await XA.fetchJson('/run/status');
+  if (s.total > 0) {
+    document.getElementById('progressBar').style.width = (s.processed / s.total * 100).toFixed(0) + '%';
+    document.getElementById('progressText').textContent = `${s.processed} / ${s.total} 筆` + (s.capture ? `　（已擷取 ${s.capture.flow_count}、待分析 ${s.capture.pending}）` : '');
+  }
+}
+
+function connectSSE(offset) {
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource(`/stream?offset=${offset}`);
+  evtSource.onmessage = e => handleEvent(JSON.parse(e.data));
+  evtSource.onerror = () => { evtSource.close(); };
+}
+
+async function init() {
+  cfg = await XA.config();
+  K = XA.renderKSelector('kSel', cfg, k => { K = k; rerenderK(); });
+  await loadOptions();
+  const existing = await XA.fetchJson('/run/results');
+  existing.filter(ev => ev.zone !== 'DONE').forEach(handleEvent);
+  const status = await XA.fetchJson('/run/status');
+  if (status.run_id) {
+    document.getElementById('runTitle').textContent = status.name || '';
+    const link = document.getElementById('detailLink'); link.href = `/history/${status.run_id}`; link.style.display = '';
+  }
+  currentRunId = status.run_id;
+  if (status.running) {
+    showRunning(status);
+    connectSSE(existing.length);
+    pollTimer = setInterval(pollStatus, 2000);
+  } else if (existing.length) {
+    const last = existing[existing.length - 1];
+    if (last.zone === 'DONE') handleEvent(last);
+  }
+}
+init();
+idleTimer = setInterval(watchIdle, 3000);
+</script>
+{% endblock %}

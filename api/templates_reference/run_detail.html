@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}測試詳情 — XaIDS{% endblock %}
+{% block content %}
+
+<h1>// RUN <span id="runName" class="editable" contenteditable="true" style="color:var(--text)"></span></h1>
+
+<div class="card">
+  <div style="display:grid;grid-template-columns:140px 1fr;gap:6px 12px;font-size:12px">
+    <span class="muted">備註</span><span id="runNote" class="editable" contenteditable="true"></span>
+    <span class="muted">來源</span><span id="runSource"></span>
+    <span class="muted">時間</span><span id="runTime"></span>
+    <span class="muted">狀態</span><span id="runStatus"></span>
+    <span class="muted">模型</span><span id="runModel"></span>
+    <span class="muted">參數</span><span id="runParams"></span>
+  </div>
+  <div style="margin-top:12px;display:flex;gap:8px">
+    <a id="exportLink" class="btn" href="#">匯出 CSV</a>
+    <a class="btn" href="/history">← 返回歷史</a>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div id="kSel"></div>
+  <div class="field" style="flex-direction:row;align-items:center;gap:8px">
+    <span>信心值區間</span>
+    <select id="binSel" style="min-width:90px"><option value="10">0.1</option><option value="20" selected>0.05</option><option value="50">0.02</option></select>
+  </div>
+  <span class="muted" id="runMeta"></span>
+</div>
+
+<div id="charts"></div>
+
+<div class="section-label" style="margin-top:1.5rem">FLOWS · 每筆連線</div>
+<div class="card">
+  <div class="toolbar" style="margin-bottom:8px">
+    <div class="field" style="flex-direction:row;align-items:center;gap:8px"><span>ZONE</span>
+      <select id="fZone"><option value="">全部</option><option>BENIGN</option><option>UNCERTAIN</option><option>SUSPICIOUS</option><option>HIGH_CONF</option></select></div>
+    <div class="field" style="flex-direction:row;align-items:center;gap:8px"><span>正確性</span>
+      <select id="fCorrect"><option value="">全部</option><option value="true">正確</option><option value="false">錯誤</option></select></div>
+    <span class="muted" id="flowMeta"></span>
+  </div>
+  <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>#</th><th>ZONE</th><th>TRUE</th><th>PREDICTED</th><th>OK</th><th>CONF</th><th>FEATURE</th><th>SIGN</th><th>RANK</th><th>STABILITY</th><th></th></tr></thead>
+      <tbody id="flowBody"></tbody>
+    </table>
+  </div>
+  <div class="pager">
+    <button class="btn" onclick="page(-1)">‹ 上一頁</button><span id="pageInfo"></span><button class="btn" onclick="page(1)">下一頁 ›</button>
+  </div>
+</div>
+
+<div id="scatter" style="margin-top:1.5rem"></div>
+
+<script>
+const RUN_ID = "{{ run_id }}";
+const LIMIT = 100;
+let cfg, K, offset = 0;
+
+const editors = {};
+async function loadRun() {
+  const r = await XA.fetchJson(`/api/runs/${RUN_ID}?k=${K}`);
+  // 載入後才綁定，編輯器記住的「已儲存值」才會是資料庫裡的值
+  if (!editors.name) {
+    document.getElementById('runName').textContent = r.name;
+    document.getElementById('runNote').textContent = r.note || '';
+    editors.name = XA.bindEditable(document.getElementById('runName'), `/api/runs/${RUN_ID}`, 'name', { required: true });
+    editors.note = XA.bindEditable(document.getElementById('runNote'), `/api/runs/${RUN_ID}`, 'note');
+  } else {
+    editors.name.reset(r.name); editors.note.reset(r.note || '');
+  }
+  document.getElementById('runSource').textContent = `${r.source_type} · ${r.source}${r.bpf_filter ? ` · BPF "${r.bpf_filter}"` : ''}${r.expected_label ? ` · 預期標籤 ${r.expected_label}` : ''}`;
+  document.getElementById('runTime').textContent = `${XA.time(r.started_at)} → ${XA.time(r.finished_at)}`;
+  document.getElementById('runStatus').innerHTML = `<span class="badge badge-${r.status}">${r.status}</span> ${r.processed} / ${r.total}${r.error ? ` <span style="color:var(--danger)">${XA.esc(r.error)}</span>` : ''}`;
+  document.getElementById('runModel').textContent = r.model_name;
+  document.getElementById('runParams').textContent = JSON.stringify(r.params);
+  document.getElementById('exportLink').href = `/api/runs/${RUN_ID}/export.csv`;
+}
+
+async function loadCharts() {
+  const bins = document.getElementById('binSel').value;
+  const data = await XA.fetchJson(`/api/stats/charts?k=${K}&bins=${bins}&run_ids=${RUN_ID}`);
+  document.getElementById('runMeta').textContent = `${data.n_total} 筆 flow，${data.n_labeled} 筆有真實標籤（k = ${data.k}）`;
+  XA.renderChartsRemember('r', data, cfg);
+}
+
+async function loadFlows() {
+  const zone = document.getElementById('fZone').value;
+  const correct = document.getElementById('fCorrect').value;
+  const q = new URLSearchParams({ limit: LIMIT, offset });
+  if (zone) q.set('zone', zone);
+  if (correct) q.set('correct', correct);
+  const data = await XA.fetchJson(`/api/runs/${RUN_ID}/flows?${q}`);
+  document.getElementById('flowMeta').textContent = `符合 ${data.total} 筆`;
+  document.getElementById('pageInfo').textContent = `${data.total ? offset + 1 : 0}–${Math.min(offset + LIMIT, data.total)} / ${data.total}`;
+  document.getElementById('flowBody').innerHTML = data.items.map(f => {
+    const c = f.consistency[K] || f.consistency[String(K)] || {};
+    return `<tr>
+      <td class="muted">${f.seq}</td><td>${XA.zoneBadge(f.conf_zone)}</td>
+      <td>${XA.esc(f.true_label ?? '—')}</td><td>${XA.esc(f.predicted_label)}</td><td>${XA.correctMark(f.correct)}</td>
+      <td>${XA.pct1(f.confidence)}</td>
+      <td>${XA.pct(c.feature_agreement)}</td><td>${XA.badge(c.sign_agreement, cfg)}</td><td>${XA.pct(c.rank_agreement)}</td>
+      <td class="muted">${XA.pct(c.lime_stability)}</td>
+      <td><a href="/explain/${f.id}" target="_blank" style="font-size:11px">Explain</a></td></tr>`;
+  }).join('') || '<tr><td colspan="11" class="muted">沒有符合的 flow</td></tr>';
+}
+
+function page(d) { offset = Math.max(0, offset + d * LIMIT); loadFlows(); }
+
+async function init() {
+  cfg = await XA.config();
+  document.getElementById('charts').innerHTML = XA.chartsSkeleton('r');
+  document.getElementById('scatter').innerHTML = XA.scatterSkeleton('r');
+  document.getElementById('binSel').addEventListener('change', loadCharts);
+  K = XA.renderKSelector('kSel', cfg, k => { K = k; loadCharts(); loadFlows(); });
+  ['fZone', 'fCorrect'].forEach(id => document.getElementById(id).addEventListener('change', () => { offset = 0; loadFlows(); }));
+  try { await Promise.all([loadRun(), loadCharts(), loadFlows()]); }
+  catch (e) { document.getElementById('charts').innerHTML = `<div class="card" style="color:var(--danger)">${XA.esc(e.message)}</div>`; }
+}
+init();
+</script>
+{% endblock %}

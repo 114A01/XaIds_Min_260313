@@ -1,0 +1,28 @@
+# XaIDS 的 Python 套件（Python 3.11）。版本是 2026-11-17 實際執行的環境。
+#   conda create -n MLEnv python=3.11 && conda activate MLEnv
+#   pip install -r requirements.txt
+#
+# nfstream、xgboost、scikit-learn 的版本和模型檔綁在一起：
+#   * nfstream 決定 flow 的切法與特徵值，升級前先讀 document/manual_full.md 的 11.4 節
+#   * 模型檔是用 xgboost 2.1.4 / scikit-learn 1.7.2 存的，版本不同可能載入失敗或出現警告
+
+# 網頁服務與資料庫
+fastapi==0.128.0
+uvicorn==0.40.0
+jinja2==3.1.6
+aiomysql==0.3.2
+
+# 模型與解釋
+xgboost==2.1.4
+scikit-learn==1.7.2
+shap==0.48.0
+lime==0.2.0.1
+joblib==1.5.3
+numpy==1.26.4
+pandas==3.0.1
+
+# 流量擷取與特徵萃取
+nfstream==6.6.0
+pyarrow==21.0.0
+
+# 前端稽核（tools/audit.py）另外需要 playwright，建議裝在獨立的 venv，見 manual_full.md 11.5 節

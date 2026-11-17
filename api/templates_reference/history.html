@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}歷史 — XaIDS{% endblock %}
+{% block content %}
+
+<h1>// HISTORY</h1>
+
+<div class="card">
+  <div class="toolbar" style="margin-bottom:8px">
+    <div class="section-label" style="margin:0">RUN FILTER · 勾選要納入圖表的測試</div>
+    <span class="muted" id="filterMeta"></span>
+    <div style="margin-left:auto;display:flex;gap:6px">
+      <button class="btn" style="padding:3px 8px;font-size:11px" onclick="selectRuns('current')">只選目前設定</button>
+      <button class="btn" style="padding:3px 8px;font-size:11px" onclick="selectRuns('all')">全選</button>
+      <button class="btn" style="padding:3px 8px;font-size:11px" onclick="selectRuns('none')">清除</button>
+    </div>
+  </div>
+  <div id="runFilter" class="run-filter"><span class="muted">載入中…</span></div>
+</div>
+
+<div class="toolbar">
+  <div id="kSel"></div>
+  <div class="field" style="flex-direction:row;align-items:center;gap:8px">
+    <span>信心值區間</span>
+    <select id="binSel" style="min-width:90px"><option value="10">0.1</option><option value="20" selected>0.05</option><option value="50">0.02</option></select>
+  </div>
+  <span class="muted" id="chartMeta"></span>
+</div>
+
+<div id="charts"></div>
+
+<div class="section-label" style="margin-top:1.5rem">RUNS · 每一次測試（點備註可直接編輯）</div>
+<div class="card" style="padding:0;overflow-x:auto">
+  <table>
+    <thead><tr>
+      <th>名稱</th><th>備註</th><th>來源</th><th>模型</th><th>開始時間</th><th>狀態</th><th>筆數</th>
+      <th>B / U / S / H</th><th>正確率</th><th>一致性(k)</th><th>LIME 穩定</th><th></th>
+    </tr></thead>
+    <tbody id="runBody"><tr><td colspan="12" class="muted">載入中…</td></tr></tbody>
+  </table>
+</div>
+
+<div id="scatter" style="margin-top:1.5rem"></div>
+
+<style>
+  .run-filter { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:4px 16px; }
+  .run-filter label { display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; white-space:nowrap; overflow:hidden; }
+  .run-filter label .muted { overflow:hidden; text-overflow:ellipsis; }
+  .run-filter .other-model { opacity:.7; }
+  .btn-confirm { color:#fff; background: var(--danger); border-color: var(--danger); }
+</style>
+
+<script>
+let cfg, K, runs = [];
+
+function selectedIds() {
+  return [...document.querySelectorAll('#runFilter input:checked')].map(i => i.value);
+}
+// 「目前設定」= 目前模型，而且 SHAP 參考分布與 config 相同（2026-11-17 以前的測試沒有記錄，當時是 tree_path）。
+// 兩者任一不同，一致性分數就不能放在一起比。
+function isCurrent(r) {
+  return r.model_name === cfg.model_name && ((r.params || {}).shap_reference || 'tree_path') === cfg.shap_reference;
+}
+function selectRuns(mode) {
+  document.querySelectorAll('#runFilter input').forEach(i => {
+    i.checked = mode === 'all' ? true : mode === 'none' ? false : i.dataset.current === '1';
+  });
+  loadCharts();
+}
+
+function renderFilter() {
+  const box = document.getElementById('runFilter');
+  if (!runs.length) { box.innerHTML = '<span class="muted">還沒有任何測試。</span>'; return; }
+  const prev = new Set(selectedIds());
+  const first = !box.querySelector('input');
+  box.innerHTML = runs.map(r => {
+    const current = isCurrent(r);
+    const checked = first ? current : prev.has(r.run_id);
+    const why = r.model_name !== cfg.model_name ? ' · 其他模型' : current ? '' : ' · 舊 SHAP 設定';
+    return `<label class="${current ? '' : 'other-model'}" title="${XA.esc(r.model_name)} · SHAP 參考分布 ${XA.esc((r.params || {}).shap_reference || 'tree_path')}">
+      <input type="checkbox" value="${r.run_id}" data-current="${current ? 1 : 0}" ${checked ? 'checked' : ''}>
+      <span>${XA.esc(r.name)}</span>
+      <span class="muted">${r.source_type} · ${r.flow_count} 筆${why}</span>
+    </label>`;
+  }).join('');
+  box.querySelectorAll('input').forEach(i => i.addEventListener('change', loadCharts));
+}
+
+async function loadCharts() {
+  const ids = selectedIds();
+  document.getElementById('filterMeta').textContent = `已選 ${ids.length} / ${runs.length} 次測試`;
+  const bins = document.getElementById('binSel').value;
+  const data = await XA.fetchJson(`/api/stats/charts?k=${K}&bins=${bins}&run_ids=${ids.join(',')}`);
+  document.getElementById('chartMeta').textContent = `共 ${data.n_total} 筆 flow，${data.n_labeled} 筆有真實標籤（k = ${data.k}）`;
+  XA.renderChartsRemember('h', data, cfg);
+}
+
+async function loadRuns() {
+  runs = await XA.fetchJson(`/api/runs?k=${K}`);
+  renderFilter();
+  const body = document.getElementById('runBody');
+  if (!runs.length) { body.innerHTML = '<tr><td colspan="12" class="muted">還沒有任何測試，到「測試」頁開始一次。</td></tr>'; return; }
+  body.innerHTML = runs.map(r => `
+    <tr data-id="${r.run_id}">
+      <td><a href="/history/${r.run_id}">${XA.esc(r.name)}</a></td>
+      <td><span class="editable" contenteditable="true" data-field="note" data-id="${r.run_id}">${XA.esc(r.note || '')}</span></td>
+      <td class="muted">${r.source_type}<br>${XA.esc(r.source)}${r.expected_label ? `<br>→ ${XA.esc(r.expected_label)}` : ''}</td>
+      <td class="muted" title="${XA.esc(r.model_name)}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${XA.esc(r.model_name.replace(/\.joblib$/, ''))}</td>
+      <td class="muted">${XA.time(r.started_at)}</td>
+      <td><span class="badge badge-${r.status}">${r.status}</span></td>
+      <td>${r.flow_count}${r.total && r.total !== r.flow_count ? ` <span class="muted">/ ${r.total}</span>` : ''}</td>
+      <td class="muted" style="white-space:nowrap">${r.n_benign} / ${r.n_uncertain} / ${r.n_suspicious} / ${r.n_high_conf}</td>
+      <td>${r.n_labeled ? XA.pct1(r.accuracy) : '<span class="muted">無標籤</span>'}</td>
+      <td>${XA.badge(r.mean_sign_agreement, cfg)}</td>
+      <td class="muted">${XA.pct1(r.mean_lime_stability)}</td>
+      <td style="white-space:nowrap">
+        <a class="btn" href="/api/runs/${r.run_id}/export.csv" style="padding:3px 8px;font-size:11px">CSV</a>
+        <button class="btn btn-danger del-btn" data-id="${r.run_id}" style="padding:3px 8px;font-size:11px">刪除</button>
+      </td>
+    </tr>`).join('');
+  body.querySelectorAll('.editable').forEach(el => XA.bindEditable(el, `/api/runs/${el.dataset.id}`, el.dataset.field));
+  body.querySelectorAll('.del-btn').forEach(btn => btn.addEventListener('click', () => deleteRun(btn)));
+}
+
+// 兩段式確認：第一次按變成「確認刪除？」，5 秒內再按一次才真的刪；不用 confirm()（有些內嵌瀏覽器會直接擋掉）。
+async function deleteRun(btn) {
+  if (!btn.classList.contains('btn-confirm')) {
+    btn.classList.add('btn-confirm'); btn.textContent = '再按一次確認刪除';
+    btn._timer = setTimeout(() => { btn.classList.remove('btn-confirm'); btn.textContent = '刪除'; }, 5000);
+    return;
+  }
+  clearTimeout(btn._timer);
+  btn.disabled = true; btn.textContent = '刪除中…';
+  try {
+    await XA.fetchJson(`/api/runs/${btn.dataset.id}`, { method: 'DELETE' });
+    await loadRuns();
+    await loadCharts();
+  } catch (e) {
+    btn.disabled = false; btn.classList.remove('btn-confirm'); btn.textContent = '刪除';
+    btn.title = e.message;
+    const td = btn.parentElement; const msg = document.createElement('div');
+    msg.className = 'muted'; msg.style.color = 'var(--danger)'; msg.textContent = '刪除失敗：' + e.message; td.appendChild(msg);
+  }
+}
+
+async function init() {
+  cfg = await XA.config();
+  document.getElementById('charts').innerHTML = XA.chartsSkeleton('h');
+  document.getElementById('scatter').innerHTML = XA.scatterSkeleton('h');
+  document.getElementById('binSel').addEventListener('change', loadCharts);
+  K = XA.renderKSelector('kSel', cfg, k => { K = k; loadRuns().then(loadCharts); });
+  await loadRuns();
+  await loadCharts();
+  XA.onBackForward(() => loadRuns().then(loadCharts));
+}
+init();
+</script>
+{% endblock %}
